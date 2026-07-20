@@ -397,6 +397,11 @@ async function initApp(){
 
   await tumVeriyiYenidenYukleVeCiz();
 
+  // Gerçek zamanlı çoklu cihaz senkronu: başka bir cihaz veri değiştirdiğinde bu
+  // sekmeyi otomatik günceller (sayfa yenilemeye gerek kalmaz). Firebase yoksa veya
+  // erişim anahtarı hiç girilmediyse sessizce hiçbir şey yapmaz.
+  if(typeof canliDinlemeBaslat === 'function') await canliDinlemeBaslat();
+
   // Sidebar aç/kapat: masaüstünde ray üzerindeki logo/ok tıklanınca genişler/daralır
   // (rayın kendisi kaybolmaz); mobil hamburger tam paneli açar, X veya overlay kapatır.
   document.getElementById('btnSidebarToggleRail').addEventListener('click', sidebarAcKapaTogla);

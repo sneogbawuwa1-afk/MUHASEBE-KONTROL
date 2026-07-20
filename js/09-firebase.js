@@ -217,6 +217,7 @@ function erisimAnahtariModaliGoster(hataMesaji){
       overlay.remove();
       buluttaBaglantiDurumunuGuncelle(true);
       if(typeof tumVeriyiYenidenYukleVeCiz === 'function') await tumVeriyiYenidenYukleVeCiz();
+      if(typeof canliDinlemeBaslat === 'function') await canliDinlemeBaslat();
     }catch(e){
       erisimAnahtariniTemizle();
       overlay.remove();
@@ -235,5 +236,140 @@ async function erisimKontroluBaslat(){
   const anahtar = erisimAnahtariniAl();
   if(!anahtar){
     erisimAnahtariModaliGoster(null);
+  }
+}
+
+// ============================================================================
+// CANLI DİNLEME (gerçek zamanlı çoklu cihaz senkronu)
+//
+// Her izlenen anahtar için RTDB'nin kendi canlı olay akışına (`on('value', ...)`)
+// abone oluyoruz. Başka bir cihaz o anahtara yazınca Firebase bu callback'i
+// OTOMATİK tetikler — sayfa yenilemeye gerek kalmaz.
+//
+// ÖNEMLİ: Kendi yaptığımız yazma da bu callback'i tetikler (RTDB'nin doğası böyle).
+// Kendi cihazımızın kendi yazdığı veriyi "değişiklik geldi" diye tekrar işleyip
+// gereksiz render/olası döngüye girmemek için gelen kaydın `cihazId`'sini kendi
+// `cihazId`'mizle karşılaştırıyoruz — farklıysa (yani GERÇEKTEN başka bir cihazdan
+// geldiyse) state'i güncelleyip ekranı yeniden çiziyoruz.
+// ============================================================================
+
+const CANLI_DINLENEN_ANAHTARLAR = [
+  'efaturaPanelKaynaklar_v1',
+  'efaturaPanelManuel_v1',
+  'efaturaPanelSonRapor_v1',
+  'efaturaPanelDonemler_v1',
+  'efaturaPanelSubeAtamalari_v1',
+];
+
+let _canliDinlemeAktifMi = false;
+const _aktifDinleyiciRefleri = [];
+
+async function canliDinlemeBaslat(){
+  if(_canliDinlemeAktifMi) return; // birden fazla kez çağrılırsa tekrar abone olma
+  const firebaseVarMi = await firebaseBaslat();
+  if(!firebaseVarMi) return; // Firebase yoksa canlı dinleme de yok, sorun değil (yerel mod)
+
+  const kendiCihazId = await cihazIdAl();
+  _canliDinlemeAktifMi = true;
+
+  CANLI_DINLENEN_ANAHTARLAR.forEach((anahtar)=>{
+    const yol = KV_YOLU + '/' + rtdbYoluGuvenliHalGetir(anahtar);
+    const ref = _rtdb.ref(yol);
+    ref.on('value', (anlikGoruntu)=>{
+      const veri = anlikGoruntu.val();
+      if(!veri || !('deger' in veri)) return;
+      if(veri.cihazId === kendiCihazId) return; // kendi yazdığımız değişiklik, yoksay
+
+      // Başka bir cihazdan gelen değişiklik: önce yerel önbelleği (IndexedDB) güncelle,
+      // sonra ilgili anahtara göre state'i tazeleyip SADECE o bölümü yeniden çiz.
+      idbSet(anahtar, {deger: veri.deger, guncellemeZamani: veri.guncellemeZamani, cihazId: veri.cihazId})
+        .then(()=> canliGuncellemeUygula(anahtar, veri.deger))
+        .catch((e)=> console.warn('Canlı güncelleme yerel önbelleğe yazılamadı:', e));
+    }, (hata)=>{
+      console.warn(`Canlı dinleme hatası (${anahtar}):`, hata);
+    });
+    _aktifDinleyiciRefleri.push({ref, anahtar});
+  });
+}
+
+function canliDinlemeDurdur(){
+  _aktifDinleyiciRefleri.forEach(({ref})=> ref.off());
+  _aktifDinleyiciRefleri.length = 0;
+  _canliDinlemeAktifMi = false;
+}
+
+// Başka bir cihazdan gelen değişikliği ilgili state alanına uygulayıp SADECE o
+// bölümün render fonksiyonlarını çağırır — tüm sayfayı yeniden yüklemez, kullanıcının
+// o an baktığı filtre/sekme/scroll konumu bozulmaz.
+function canliGuncellemeUygula(anahtar, yeniDeger){
+  const bildirimMetni = canliBildirimGoster;
+  switch(anahtar){
+    case 'efaturaPanelKaynaklar_v1':
+      Object.assign(state.kaynaklar, yeniDeger);
+      if(typeof renderUploadPanels === 'function') renderUploadPanels();
+      if(typeof guncelleRaporOlusturButonu === 'function') guncelleRaporOlusturButonu();
+      bildirimMetni('Veri kaynakları başka bir cihazda güncellendi.');
+      break;
+    case 'efaturaPanelManuel_v1':
+      state.manuel = yeniDeger || {};
+      if(state.rapor){
+        state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+        yenidenCizVeBildir('Manuel işaretler başka bir cihazda güncellendi.');
+      }
+      break;
+    case 'efaturaPanelSonRapor_v1':
+      // Sadece BAŞKA bir cihazın "Raporu Oluştur"a bastığı an güncel rapor değişir;
+      // biz arşiv görünümündeysek (goruntulenenDonemId doluysa) ekranı BOZMAYIZ.
+      if(!state.goruntulenenDonemId && yeniDeger && yeniDeger.rapor){
+        state.rapor = raporEksikAlanlariTamamla(yeniDeger.rapor);
+        state.gecmiseEklenenNetsisKayitlari = typeof gecmiseEklenenNetsisKayitlariBul==='function'
+          ? gecmiseEklenenNetsisKayitlariBul(state.rapor) : [];
+        yenidenCizVeBildir('Rapor başka bir cihazda güncellendi.');
+      }
+      break;
+    case 'efaturaPanelDonemler_v1':
+      state.donemler = yeniDeger || {};
+      if(typeof renderDonemPaneli === 'function') renderDonemPaneli();
+      bildirimMetni('Dönem arşivi başka bir cihazda güncellendi.');
+      break;
+    case 'efaturaPanelSubeAtamalari_v1':
+      state.subeAtamalari = new Map(Object.entries(yeniDeger || {}));
+      if(state.rapor){
+        state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+        yenidenCizVeBildir('Şube ataması başka bir cihazda güncellendi.');
+      }
+      break;
+  }
+}
+
+function yenidenCizVeBildir(mesaj){
+  if(typeof renderKPIs === 'function') renderKPIs();
+  if(typeof renderGroupTabs === 'function') renderGroupTabs();
+  if(typeof renderGroupSections === 'function') renderGroupSections();
+  if(typeof renderDonemPaneli === 'function') renderDonemPaneli();
+  if(typeof renderGecmiseEklenenUyari === 'function') renderGecmiseEklenenUyari();
+  canliBildirimGoster(mesaj);
+}
+
+// Ekranın sağ altında 2-3 saniyeliğine görünüp kaybolan küçük bir "toast" bildirimi —
+// kullanıcı neden ekranın kendiliğinden değiştiğini anlasın diye. DOM'a erişim
+// başarısız olursa (beklenmeyen bir tarayıcı/ortam farkı) sessizce geçilir — bildirim
+// gösterilememesi state güncellemesini asla etkilememeli.
+let _canliBildirimZamanlayici = null;
+function canliBildirimGoster(mesaj){
+  try{
+    let el = document.getElementById('canliSenkronBildirimi');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'canliSenkronBildirimi';
+      el.className = 'canli-senkron-bildirim';
+      document.body.appendChild(el);
+    }
+    el.innerHTML = `<i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i> ${escapeHtml(mesaj)}`;
+    el.classList.add('gorunur');
+    clearTimeout(_canliBildirimZamanlayici);
+    _canliBildirimZamanlayici = setTimeout(()=>{ el.classList.remove('gorunur'); }, 3200);
+  }catch(e){
+    console.warn('Canlı senkron bildirimi gösterilemedi:', e);
   }
 }

@@ -141,6 +141,20 @@ button{font-family:inherit;}
 .bulut-durum.ok{background:var(--green-soft);color:var(--green);}
 .bulut-durum.hata{background:var(--orange-soft);color:var(--orange);}
 .bulut-durum i{font-size:11px;}
+
+.canli-senkron-bildirim{
+  position:fixed;right:20px;bottom:20px;z-index:400;background:var(--sidebar);color:#fff;
+  padding:11px 16px;border-radius:11px;font-size:12.5px;font-weight:600;
+  display:flex;align-items:center;gap:9px;box-shadow:0 12px 30px -10px rgba(15,24,48,.45);
+  opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s ease,transform .2s ease;
+  max-width:320px;
+}
+.canli-senkron-bildirim.gorunur{opacity:1;transform:translateY(0);}
+.canli-senkron-bildirim i{color:#6EE7A0;flex-shrink:0;}
+
+@media(max-width:640px){
+  .canli-senkron-bildirim{left:14px;right:14px;bottom:14px;max-width:none;}
+}
 .btn-yukle{
   display:flex;align-items:center;gap:8px;height:38px;padding:0 15px;border-radius:10px;border:none;
   background:linear-gradient(135deg,var(--blue),var(--blue-2));color:#fff;font-size:12.5px;font-weight:700;
