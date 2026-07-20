@@ -57,19 +57,19 @@ function netsisAnahtarKumesiCikar(rapor){
 
 async function donemleriYukle(){
   try{
-    const kayit = await idbGet(DONEM_STORAGE_KEY);
+    const kayit = await syncOku(DONEM_STORAGE_KEY, null);
     state.donemler = kayit || {};
   }catch(e){
-    console.warn('Dönem arşivi okunamadı (IndexedDB)', e);
+    console.warn('Dönem arşivi okunamadı', e);
     state.donemler = {};
   }
 }
 
 async function donemleriKaydet(){
   try{
-    await idbSet(DONEM_STORAGE_KEY, state.donemler);
+    await syncYaz(DONEM_STORAGE_KEY, state.donemler);
   }catch(e){
-    console.warn('Dönem arşivi kaydedilemedi (IndexedDB)', e);
+    console.warn('Dönem arşivi kaydedilemedi', e);
   }
 }
 

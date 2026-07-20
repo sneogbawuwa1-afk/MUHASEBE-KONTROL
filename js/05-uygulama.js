@@ -163,7 +163,7 @@ const RAPOR_STORAGE_KEY = 'efaturaPanelSonRapor_v1';
 
 async function saveRaporToStorage(){
   try{
-    await idbSet(RAPOR_STORAGE_KEY, {
+    await syncYaz(RAPOR_STORAGE_KEY, {
       rapor: state.rapor,
       kayitZamani: new Date().toISOString(),
       dosyaAdlari: Object.fromEntries(
@@ -171,14 +171,13 @@ async function saveRaporToStorage(){
       ),
     });
   }catch(e){
-    console.warn('Rapor kaydedilemedi (IndexedDB):', e);
+    console.warn('Rapor kaydedilemedi:', e);
   }
 }
 
 async function loadRaporFromStorage(){
   try{
-    const parsed = await idbGet(RAPOR_STORAGE_KEY);
-
+    const parsed = await syncOku(RAPOR_STORAGE_KEY, null);
     return parsed || null;
   }catch(e){
     console.warn('Kayıtlı rapor okunamadı:', e);

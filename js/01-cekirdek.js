@@ -185,49 +185,49 @@ function depolamaUyarisiGoster(mesaj){
 
 async function saveKaynaklarToStorage(){
   try{
-    await idbSet(STORAGE_KEY, state.kaynaklar);
+    await syncYaz(STORAGE_KEY, state.kaynaklar);
   }catch(e){
-    console.warn('Kaynaklar kaydedilemedi (IndexedDB)', e);
-    depolamaUyarisiGoster('Yüklenen dosyalar tarayıcıya kalıcı olarak kaydedilemiyor. Gizli sekme kullanıyor olabilirsiniz — sayfayı kapatırsanız veriler kaybolabilir.');
+    console.warn('Kaynaklar kaydedilemedi', e);
+    depolamaUyarisiGoster('Yüklenen dosyalar kalıcı olarak kaydedilemiyor. Gizli sekme kullanıyor olabilirsiniz veya bulut bağlantısında sorun var — sayfayı kapatırsanız veriler kaybolabilir.');
   }
 }
 
 async function loadKaynaklarFromStorage(){
   try{
-    const parsed = await idbGet(STORAGE_KEY);
+    const parsed = await syncOku(STORAGE_KEY, null);
     if(!parsed) return;
     Object.assign(state.kaynaklar, parsed);
 
   }catch(e){
-    console.warn('Kaynaklar okunamadı (IndexedDB)', e);
-    depolamaUyarisiGoster('Daha önce kaydedilmiş veriler okunamadı. Tarayıcı depolama ayarlarınızı kontrol edin.');
+    console.warn('Kaynaklar okunamadı', e);
+    depolamaUyarisiGoster('Daha önce kaydedilmiş veriler okunamadı. Tarayıcı depolama ayarlarınızı veya bulut bağlantınızı kontrol edin.');
   }
 }
 
 async function saveManuelToStorage(){
   try{
-    await idbSet(MANUEL_STORAGE_KEY, state.manuel);
+    await syncYaz(MANUEL_STORAGE_KEY, state.manuel);
   }catch(e){
-    console.warn('Manuel işaretlemeler kaydedilemedi (IndexedDB)', e);
-    depolamaUyarisiGoster('Manuel durum/not değişiklikleri kalıcı olarak kaydedilemiyor. Tarayıcı depolama ayarlarınızı kontrol edin.');
+    console.warn('Manuel işaretlemeler kaydedilemedi', e);
+    depolamaUyarisiGoster('Manuel durum/not değişiklikleri kalıcı olarak kaydedilemiyor. Tarayıcı depolama ayarlarınızı veya bulut bağlantınızı kontrol edin.');
   }
 }
 
 async function loadManuelFromStorage(){
   try{
-    const parsed = await idbGet(MANUEL_STORAGE_KEY);
+    const parsed = await syncOku(MANUEL_STORAGE_KEY, null);
     if(parsed) state.manuel = parsed;
-  }catch(e){ console.warn('Manuel işaretlemeler okunamadı (IndexedDB)', e); }
+  }catch(e){ console.warn('Manuel işaretlemeler okunamadı', e); }
 }
 
 async function saveTutarToleransToStorage(deger){
-  try{ await idbSet(TUTAR_TOLERANS_STORAGE_KEY, deger); }
-  catch(e){ console.warn('Tolerans ayarı kaydedilemedi (IndexedDB)', e); }
+  try{ await syncYaz(TUTAR_TOLERANS_STORAGE_KEY, deger); }
+  catch(e){ console.warn('Tolerans ayarı kaydedilemedi', e); }
 }
 
 async function loadTutarToleransFromStorage(){
   try{
-    const parsed = await idbGet(TUTAR_TOLERANS_STORAGE_KEY);
+    const parsed = await syncOku(TUTAR_TOLERANS_STORAGE_KEY, null);
     return (typeof parsed==='number' && !isNaN(parsed)) ? parsed : null;
   }catch(e){ return null; }
 }
