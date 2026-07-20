@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "kv": {
+      ".read": true,
+      "$anahtar": {
+        ".write": "newData.child('erisimAnahtari').val() === '2580'"
+      }
+    },
+    ".read": false,
+    ".write": false
+  }
+}

@@ -133,6 +133,14 @@ button{font-family:inherit;}
 .ust-sag{margin-left:auto;display:flex;align-items:center;gap:10px;}
 .btn-yenile{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);cursor:pointer;font-size:13px;transition:background .15s ease;}
 .btn-yenile:hover{background:var(--bg);}
+
+.bulut-durum{
+  display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;padding:7px 12px;
+  border-radius:100px;white-space:nowrap;background:#EEF1F6;color:var(--ink-faint);
+}
+.bulut-durum.ok{background:var(--green-soft);color:var(--green);}
+.bulut-durum.hata{background:var(--orange-soft);color:var(--orange);}
+.bulut-durum i{font-size:11px;}
 .btn-yukle{
   display:flex;align-items:center;gap:8px;height:38px;padding:0 15px;border-radius:10px;border:none;
   background:linear-gradient(135deg,var(--blue),var(--blue-2));color:#fff;font-size:12.5px;font-weight:700;
@@ -604,6 +612,11 @@ td.num{font-weight:800;letter-spacing:-.01em;}
   /* Yükle butonunda metni gizle, sadece ikon kalsın — dar ekranda yer kazandırır. */
   .btn-yukle{padding:0;width:38px;justify-content:center;}
   .btn-yukle-txt{display:none;}
+
+  /* Bulut durum rozetinde de metni gizle — dar ekranda sadece ikon yeterli. */
+  .bulut-durum{padding:0;width:34px;height:34px;justify-content:center;border-radius:10px;}
+  .bulut-durum span, .bulut-durum{font-size:0;}
+  .bulut-durum i{font-size:13px;}
 
   /* Filtre çubuğu: kaynak segmenti üstte tam genişlik, arama kutusu altında tam genişlik. */
   .filtre-bar{flex-direction:column;align-items:stretch;gap:10px;}

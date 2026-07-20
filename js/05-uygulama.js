@@ -342,25 +342,12 @@ function raporIceAktar(file){
   reader.readAsText(file);
 }
 
-async function initApp(){
-  fnoKopyalaDelegationBagla();
-
-  // Sidebar başlangıç durumu: mobilde daima kapalı (kayan panel gizli);
-  // masaüstünde kayıtlı tercih uygulanır — ilk ziyarette varsayılan olarak
-  // dar İKON RAYI gösterilir (referans tasarımdaki gibi), kullanıcı genişletince tercih hatırlanır.
-  const layoutEl = document.querySelector('.layout');
-  if(window.innerWidth <= 960){
-    layoutEl.classList.add('sb-kapali');
-  }else{
-    try{
-      const k = await idbGet(SIDEBAR_STORAGE_KEY);
-      if(k===false) layoutEl.classList.remove('sb-kapali');
-      else layoutEl.classList.add('sb-kapali'); // varsayılan: ray (daraltılmış)
-    }catch(e){
-      layoutEl.classList.add('sb-kapali');
-    }
-  }
-
+// Tüm kalıcı veriyi (kaynaklar, manuel işaretler, dönem arşivi, şube atamaları,
+// tolerans, rapor) senkron katmanı üzerinden yeniden okuyup ekranı günceller.
+// initApp'te bir kere, erişim anahtarı ilk kez doğru girildiğinde bir kere daha
+// (09-firebase.js) çağrılır — böylece anahtar girilir girilmez Firestore'daki
+// güncel veriler hemen ekrana yansır.
+async function tumVeriyiYenidenYukleVeCiz(){
   await loadKaynaklarFromStorage();
   await loadManuelFromStorage();
   await donemleriYukle();
@@ -383,6 +370,33 @@ async function initApp(){
   renderGroupSections();
   renderDonemPaneli();
   renderGecmiseEklenenUyari();
+}
+
+async function initApp(){
+  fnoKopyalaDelegationBagla();
+
+  // Sidebar başlangıç durumu: mobilde daima kapalı (kayan panel gizli);
+  // masaüstünde kayıtlı tercih uygulanır — ilk ziyarette varsayılan olarak
+  // dar İKON RAYI gösterilir (referans tasarımdaki gibi), kullanıcı genişletince tercih hatırlanır.
+  const layoutEl = document.querySelector('.layout');
+  if(window.innerWidth <= 960){
+    layoutEl.classList.add('sb-kapali');
+  }else{
+    try{
+      const k = await idbGet(SIDEBAR_STORAGE_KEY);
+      if(k===false) layoutEl.classList.remove('sb-kapali');
+      else layoutEl.classList.add('sb-kapali'); // varsayılan: ray (daraltılmış)
+    }catch(e){
+      layoutEl.classList.add('sb-kapali');
+    }
+  }
+
+  // Firebase/erişim anahtarı kontrolü SESSİZCE dener — Firestore henüz yoksa veya
+  // anahtar zaten localStorage'da kayıtlıysa hiçbir şey görünmez; sadece anahtar
+  // hiç girilmemişse (ilk açılış) bir kere sorulur.
+  if(typeof erisimKontroluBaslat === 'function') await erisimKontroluBaslat();
+
+  await tumVeriyiYenidenYukleVeCiz();
 
   // Sidebar aç/kapat: masaüstünde ray üzerindeki logo/ok tıklanınca genişler/daralır
   // (rayın kendisi kaybolmaz); mobil hamburger tam paneli açar, X veya overlay kapatır.

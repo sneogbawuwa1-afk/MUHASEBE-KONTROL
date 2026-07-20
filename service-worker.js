@@ -2,7 +2,7 @@
 
 // Sürüm numarasını her önemli statik dosya değişikliğinde artır — eski önbellek
 // otomatik temizlenir (activate aşamasında).
-const CACHE_SURUMU = 'efatura-panel-v3';
+const CACHE_SURUMU = 'efatura-panel-v5';
 const ONBELLEK_DOSYALARI = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const ONBELLEK_DOSYALARI = [
   './js/06-pwa.js',
   './js/07-donem-arsivi.js',
   './js/08-senkron-katmani.js',
+  './js/09-firebase.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
