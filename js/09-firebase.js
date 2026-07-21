@@ -38,23 +38,36 @@ function firebaseSdkYuklendiMi(){
   return typeof window.firebase !== 'undefined' && typeof window.firebase.database === 'function';
 }
 
+// SDK'nın (CDN'den defer ile yüklenen firebase-app-compat.min.js / firebase-database-
+// compat.min.js) henüz TAM olarak yüklenip global scope'a `window.firebase` olarak
+// yansımamış olma ihtimaline karşı: yavaş ağ bağlantısı, ilk ziyaret (CDN cache'i yok),
+// veya tarayıcının script çalıştırma sırasındaki küçük gecikmeler bu durumu yaratabilir.
+// firebaseBaslat() SDK'yı hemen bulamazsa birkaç kez, artan aralıklarla yeniden dener —
+// bu sayede "ilk açılışta veri boş geliyor, F5 sonra düzeliyor" sorunu ortadan kalkar
+// (F5'te SDK zaten tarayıcı önbelleğinden anında yüklendiği için sorun görünmüyordu,
+// bu da gecikme teorisini doğruluyor).
+function gecikme(ms){ return new Promise(r=> setTimeout(r, ms)); }
+
 async function firebaseBaslat(){
   if(_firebaseHazirMi) return true;
-  if(!firebaseSdkYuklendiMi()){
-    console.warn('Firebase SDK yüklenemedi — sadece yerel (IndexedDB) modda çalışılacak.');
-    return false;
-  }
-  try{
-    if(!window.firebase.apps.length){
-      window.firebase.initializeApp(FIREBASE_CONFIG);
+  const denemeAraliklari = [0, 150, 350, 700, 1200]; // toplam ~2.4sn boyunca kademeli yeniden dener
+  for(let i=0; i<denemeAraliklari.length; i++){
+    if(denemeAraliklari[i] > 0) await gecikme(denemeAraliklari[i]);
+    if(!firebaseSdkYuklendiMi()) continue; // henüz yüklenmedi, bir sonraki denemeyi bekle
+    try{
+      if(!window.firebase.apps.length){
+        window.firebase.initializeApp(FIREBASE_CONFIG);
+      }
+      _rtdb = window.firebase.database();
+      _firebaseHazirMi = true;
+      return true;
+    }catch(e){
+      console.warn(`Firebase başlatma denemesi ${i+1} başarısız:`, e);
+      // Bir sonraki denemede tekrar dener; son denemede de başarısız olursa döngü biter.
     }
-    _rtdb = window.firebase.database();
-    _firebaseHazirMi = true;
-    return true;
-  }catch(e){
-    console.warn('Firebase başlatılamadı, yerel moda düşülüyor:', e);
-    return false;
   }
+  console.warn('Firebase SDK birkaç denemeden sonra hâlâ hazır değil — sadece yerel (IndexedDB) modda çalışılacak.');
+  return false;
 }
 
 // RTDB anahtarları '.', '#', '$', '[', ']' karakterlerini kabul etmez — uygulamanın
