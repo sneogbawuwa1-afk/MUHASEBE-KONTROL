@@ -452,7 +452,7 @@ function canliGuncellemeUygula(anahtar, yeniDeger){
       // kaynaklarla yeniden hesaplamak gerekir — aksi halde rapor ile kaynaklar
       // arasında tutarsızlık oluşur (rapor eski kaynaklara göre kalır).
       if(state.rapor && !state.goruntulenenDonemId){
-        state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+        state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari, state.zincirVknListesi, state.faturaSubeAtamalari);
         yenidenCizVeBildir('Veri kaynakları başka bir cihazda güncellendi.');
       }else{
         bildirimMetni('Veri kaynakları başka bir cihazda güncellendi.');
@@ -461,7 +461,7 @@ function canliGuncellemeUygula(anahtar, yeniDeger){
     case 'efaturaPanelManuel_v1':
       state.manuel = yeniDeger || {};
       if(state.rapor){
-        state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+        state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari, state.zincirVknListesi, state.faturaSubeAtamalari);
         yenidenCizVeBildir('Manuel işaretler başka bir cihazda güncellendi.');
       }
       break;
@@ -493,7 +493,7 @@ function canliGuncellemeUygula(anahtar, yeniDeger){
     case 'efaturaPanelSubeAtamalari_v1':
       state.subeAtamalari = new Map(Object.entries(yeniDeger || {}));
       if(state.rapor){
-        state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+        state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari, state.zincirVknListesi, state.faturaSubeAtamalari);
         yenidenCizVeBildir('Şube ataması başka bir cihazda güncellendi.');
       }
       break;

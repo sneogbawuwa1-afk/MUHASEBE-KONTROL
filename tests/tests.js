@@ -241,6 +241,92 @@ test('manuel atama parametresi verilmezse (undefined) eski davranış korunur', 
   assert.strictEqual(r.grup, 'kontrol');
 });
 
+baslik('\nbelirleSube — zincir VKN istisnası (Migros senaryosu: VKN paylaşımlı marka)');
+test('zincir VKN listesindeki bir VKN, Müşteri Master\'da olsa bile Kontrol\'e düşer', ()=>{
+  const kesanSeti = new Set([normVKN('6220529513')]); // Migros VKN'si Master'da KAYITLI
+  const zincirSeti = new Set([normVKN('6220529513')]); // ama zincir olarak işaretli
+  const r = belirleSube('6220529513', 'M022026001306267', null, new Set(), kesanSeti, new Set(), new Map(), zincirSeti);
+  assert.strictEqual(r.grup, 'kontrol');
+});
+test('zincir VKN istisnası, manuel VKN atamasından bile ÖNCELİKLİDİR', ()=>{
+  const manuelAtama = new Map([[normVKN('6220529513'), 'kesan']]); // VKN bazlı manuel atama var
+  const zincirSeti = new Set([normVKN('6220529513')]);
+  const r = belirleSube('6220529513', 'M022026001306267', null, new Set(), new Set(), new Set(), manuelAtama, zincirSeti);
+  assert.strictEqual(r.grup, 'kontrol'); // zincir listesi manuel atamayı bile ezer
+});
+test('zincir listesinde OLMAYAN bir VKN için normal mantık (Master/manuel atama) işler', ()=>{
+  const kesanSeti = new Set([normVKN('1112223334')]);
+  const zincirSeti = new Set([normVKN('6220529513')]); // farklı bir VKN zincirde
+  const r = belirleSube('1112223334', 'ES1', null, new Set(), kesanSeti, new Set(), new Map(), zincirSeti);
+  assert.strictEqual(r.grup, 'kesan'); // etkilenmedi, normal Master mantığı çalıştı
+});
+test('zincirVknSeti parametresi verilmezse (undefined) eski davranış korunur', ()=>{
+  const kesanSeti = new Set([normVKN('6220529513')]);
+  const r = belirleSube('6220529513', 'ES1', null, new Set(), kesanSeti, new Set());
+  assert.strictEqual(r.grup, 'kesan'); // zincir kontrolü yoksa Master mantığı normal çalışır
+});
+
+baslik('\nvknZincirMi / zincir VKN listesi state okuma');
+test('zincir listesine eklenen VKN doğru tespit edilir', ()=>{
+  context.__test_zincir = new Set([normVKN('6220529513')]);
+  vm.runInContext('state.zincirVknListesi = __test_zincir;', context);
+  assert.strictEqual(context.vknZincirMi('6220529513'), true);
+});
+test('listede olmayan VKN için false döner', ()=>{
+  assert.strictEqual(context.vknZincirMi('9998887776'), false);
+});
+test('VKN normalize edilerek (baştaki sıfırlar temizlenerek) aranır', ()=>{
+  context.__test_zincir2 = new Set([normVKN('006220529513')]);
+  vm.runInContext('state.zincirVknListesi = __test_zincir2;', context);
+  assert.strictEqual(context.vknZincirMi('6220529513'), true);
+});
+
+baslik('\nfaturaSubesiAtanmisMi / fatura bazlı geçici atama state okuma');
+test('atanmış faturaKey için doğru grup döner', ()=>{
+  context.__test_fatura_sube = new Map([['vkn123::M|022026001306267', 'kesan']]);
+  vm.runInContext('state.faturaSubeAtamalari = __test_fatura_sube;', context);
+  assert.strictEqual(context.faturaSubesiAtanmisMi('vkn123::M|022026001306267'), 'kesan');
+});
+test('atanmamış faturaKey için null döner', ()=>{
+  assert.strictEqual(context.faturaSubesiAtanmisMi('baska-fatura-key'), null);
+});
+
+baslik('\ncomputeRapor — zincir VKN + fatura bazlı atama entegrasyonu (Migros senaryosu)');
+const migrosKaynaklari = {
+  efaturaQnb: { rows: [
+    {'GÖNDEREN VKN/TCKN':'6220529513','FATURA NO':'M022026001306267','FATURA TARİHİ':'03.06.2026','TUTAR':'516,97','GÖNDEREN UNVAN/AD SOYAD':'MİGROS TİCARET A.Ş. (Keşan Erikli)','DURUM':'Onaylandı'},
+    {'GÖNDEREN VKN/TCKN':'6220529513','FATURA NO':'M022026001307973','FATURA TARİHİ':'04.06.2026','TUTAR':'646,45','GÖNDEREN UNVAN/AD SOYAD':'MİGROS TİCARET A.Ş. (Tekirdağ)','DURUM':'Onaylandı'},
+  ]},
+  musteriKesan: {rows: [{'Vergi No':'6220529513','TC Kimlik No':null}]}, // VKN Master'da KAYITLI
+  musteriBayrampasa: {rows: []}, efesEkstre: null, netsis: null,
+};
+test('zincir VKN\'ye ait tüm faturalar Master\'da kayıtlı olsa bile önce Kontrol\'e düşer', ()=>{
+  const zincirSeti = new Set([normVKN('6220529513')]);
+  const rapor = computeRapor(migrosKaynaklari, {}, new Map(), zincirSeti, new Map());
+  const f1 = rapor.faturalar.find(x=> x.faturaNo==='M022026001306267');
+  const f2 = rapor.faturalar.find(x=> x.faturaNo==='M022026001307973');
+  assert.strictEqual(f1.subeGrup, 'kontrol');
+  assert.strictEqual(f2.subeGrup, 'kontrol');
+});
+test('fatura bazlı atama, SADECE atanan faturayı etkiler — aynı VKN\'nin diğer faturasını etkilemez', ()=>{
+  const zincirSeti = new Set([normVKN('6220529513')]);
+  const rapor1 = computeRapor(migrosKaynaklari, {}, new Map(), zincirSeti, new Map()); // önce anahtarları öğrenelim
+  const f1anahtar = rapor1.faturalar.find(x=> x.faturaNo==='M022026001306267').faturaKey;
+
+  const faturaSubeAtamalari = new Map([[f1anahtar, 'kesan']]); // sadece 1. fatura Keşan'a atandı
+  const rapor2 = computeRapor(migrosKaynaklari, {}, new Map(), zincirSeti, faturaSubeAtamalari);
+  const f1 = rapor2.faturalar.find(x=> x.faturaNo==='M022026001306267');
+  const f2 = rapor2.faturalar.find(x=> x.faturaNo==='M022026001307973');
+  assert.strictEqual(f1.subeGrup, 'kesan'); // atanan fatura Keşan'a düştü
+  assert.strictEqual(f2.subeGrup, 'kontrol'); // atanmayan fatura hâlâ Kontrol'de kaldı
+});
+test('computeRapor üçüncü/dördüncü/beşinci parametreler verilmezse (undefined) hata vermez, eski davranış korunur', ()=>{
+  const rapor = computeRapor(migrosKaynaklari, {});
+  // zincir kontrolü yoksa Master'da kayıtlı VKN normal şekilde Keşan'a düşer
+  const f1 = rapor.faturalar.find(x=> x.faturaNo==='M022026001306267');
+  assert.strictEqual(f1.subeGrup, 'kesan');
+});
+
 baslik('\nvknSubesiAtanmisMi (state.subeAtamalari okuma)');
 test('atanmış VKN için doğru grup döner', ()=>{
   stateSubeAtamalariniAyarla([[normVKN('9998887776'), 'bayrampasa']]);

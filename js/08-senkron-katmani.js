@@ -90,3 +90,74 @@ async function vknSubesiniAta(vkn, grup){
 function vknSubesiAtanmisMi(vkn){
   return state.subeAtamalari.get(normVKN(vkn)) || null;
 }
+
+// ===== ZİNCİR VKN LİSTESİ =====
+// state.zincirVknListesi: Set<vkn(normalize)>. Migros gibi Türkiye genelinde tüm
+// şubeleri aynı VKN'yi kullanan markalar için — bu VKN'ler otomatik Keşan/Bayrampaşa
+// atamasından (Müşteri Master dahil) tamamen MUAF tutulur, her zaman "Kontrol"e düşer.
+// Kullanıcı sidebar'dan istediği VKN'yi ekleyip çıkarabilir.
+const ZINCIR_VKN_LISTESI_STORAGE_KEY = 'efaturaPanelZincirVknListesi_v1';
+
+async function zincirVknListesiniYukle(){
+  const kayit = await syncOku(ZINCIR_VKN_LISTESI_STORAGE_KEY, []);
+  state.zincirVknListesi = new Set(Array.isArray(kayit) ? kayit : []);
+}
+
+async function zincirVknListesiniKaydet(){
+  await syncYaz(ZINCIR_VKN_LISTESI_STORAGE_KEY, Array.from(state.zincirVknListesi));
+}
+
+// Bir VKN'yi zincir listesine ekler — bundan sonra bu VKN'ye ait TÜM faturalar
+// (Müşteri Master'da olsa bile) otomatik olarak "Kontrol" grubuna düşer.
+async function zincirVknEkle(vkn){
+  const normalizeVkn = normVKN(vkn);
+  if(!normalizeVkn) return;
+  state.zincirVknListesi.add(normalizeVkn);
+  await zincirVknListesiniKaydet();
+}
+
+// Bir VKN'yi zincir listesinden çıkarır — normal Müşteri Master/manuel VKN ataması
+// mantığı bu VKN için tekrar geçerli olur.
+async function zincirVknCikar(vkn){
+  const normalizeVkn = normVKN(vkn);
+  if(!normalizeVkn) return;
+  state.zincirVknListesi.delete(normalizeVkn);
+  await zincirVknListesiniKaydet();
+}
+
+function vknZincirMi(vkn){
+  return state.zincirVknListesi.has(normVKN(vkn));
+}
+
+// ===== FATURA BAZLI GEÇİCİ ŞUBE ATAMASI =====
+// state.faturaSubeAtamalari: Map<faturaKey, 'kesan'|'bayrampasa'>. VKN'den bağımsız,
+// SADECE o faturaya özel geçici atama — zincir VKN'li (örn. Migros) faturalar Kontrol'e
+// düştüğünde, her faturayı kendi başına elle atamak için kullanılır. Aynı VKN'nin başka
+// bir faturasını (farklı ay, farklı mağaza) HİÇ etkilemez.
+const FATURA_SUBE_ATAMALARI_STORAGE_KEY = 'efaturaPanelFaturaSubeAtamalari_v1';
+
+async function faturaSubeAtamalariniYukle(){
+  const kayit = await syncOku(FATURA_SUBE_ATAMALARI_STORAGE_KEY, {});
+  state.faturaSubeAtamalari = new Map(Object.entries(kayit || {}));
+}
+
+async function faturaSubeAtamalariniKaydet(){
+  const objeHali = Object.fromEntries(state.faturaSubeAtamalari);
+  await syncYaz(FATURA_SUBE_ATAMALARI_STORAGE_KEY, objeHali);
+}
+
+// Bir faturayı (faturaKey ile) geçici olarak bir şubeye atar/atamayı kaldırır.
+// vknSubesiniAta'dan farkı: bu SADECE bu faturaKey içindir, VKN bazında değildir.
+async function faturaSubesiniAta(faturaKey, grup){
+  if(!faturaKey) return;
+  if(grup === 'kesan' || grup === 'bayrampasa'){
+    state.faturaSubeAtamalari.set(faturaKey, grup);
+  }else{
+    state.faturaSubeAtamalari.delete(faturaKey);
+  }
+  await faturaSubeAtamalariniKaydet();
+}
+
+function faturaSubesiAtanmisMi(faturaKey){
+  return state.faturaSubeAtamalari.get(faturaKey) || null;
+}

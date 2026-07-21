@@ -236,7 +236,7 @@ async function raporuOlustur(){
 
   try{
     try{
-      state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+      state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari, state.zincirVknListesi, state.faturaSubeAtamalari);
     }catch(err){
       console.error('Rapor oluşturulurken hata:', err);
       alert('Rapor oluşturulamadı: ' + err.message + '\n\nLütfen yüklenen dosyaların doğru formatta olduğundan emin olun.');
@@ -255,7 +255,7 @@ async function raporuOlustur(){
       }
       // Manuel kayıtlar değiştiği için raporu bu güncel state.manuel ile yeniden hesapla —
       // aksi halde ekranda hâlâ "(Manuel)" etiketi görünmeye devam eder.
-      state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+      state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari, state.zincirVknListesi, state.faturaSubeAtamalari);
     }
 
     await saveRaporToStorage();
@@ -430,6 +430,8 @@ async function tumVeriyiYenidenYukleVeCiz(){
   await loadManuelFromStorage();
   await donemleriYukle();
   await subeAtamalariniYukle();
+  await zincirVknListesiniYukle();
+  await faturaSubeAtamalariniYukle();
   const kayitliTolerans = await loadTutarToleransFromStorage();
   if(kayitliTolerans != null) tutarToleransiAyarla(kayitliTolerans);
   renderUploadPanels();
@@ -500,7 +502,7 @@ async function initApp(){
     toleransInput.value = TUTAR_TOLERANS;
     await saveTutarToleransToStorage(TUTAR_TOLERANS);
     if(state.rapor){
-      state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+      state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari, state.zincirVknListesi, state.faturaSubeAtamalari);
       await saveRaporToStorage();
       renderKPIs();
       renderGroupTabs();

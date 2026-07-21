@@ -22,6 +22,19 @@ const state = {
   // otomatik olarak o şubeye düşer. Map<vkn, 'kesan'|'bayrampasa'>. Senkron katmanı
   // (js/08-senkron-katmani.js) üzerinden okunur/yazılır — çoklu cihaz desteğine hazır.
   subeAtamalari: new Map(),
+  // "Zincir VKN" listesi: Migros gibi Türkiye genelinde tüm şubeleri AYNI VKN'yi
+  // kullanan markalar için — bu VKN, Müşteri Master'da bulunsa bile ASLA otomatik
+  // Keşan/Bayrampaşa'ya düşürülmez, her zaman "Kontrol" grubuna gider. VKN bazlı
+  // subeAtamalari'ndan bile önceliklidir (kullanıcı isteği: bu VKN için hiçbir zaman
+  // VKN bazlı otomatik atama olmasın). Set<vkn(normalize)>. Kullanıcı sidebar'dan
+  // ekleyip çıkarabilir.
+  zincirVknListesi: new Set(),
+  // Fatura bazlı GEÇİCİ şube ataması: zincir VKN'li faturalar (örn. her Migros faturası)
+  // Kontrol'e düştüğünde, her faturayı TEK TEK (VKN'ye değil, o faturanın kendi
+  // faturaKey'ine göre) Keşan/Bayrampaşa'ya atayabilmek için. subeAtamalari'ndan farkı:
+  // VKN bazında KALICI değil, sadece o faturaKey'e özeldir — aynı VKN'nin başka bir
+  // faturasını (farklı ay, farklı mağaza) HİÇ etkilemez. Map<faturaKey, 'kesan'|'bayrampasa'>.
+  faturaSubeAtamalari: new Map(),
 };
 
 const STORAGE_KEY = 'efaturaPanelKaynaklar_v1';

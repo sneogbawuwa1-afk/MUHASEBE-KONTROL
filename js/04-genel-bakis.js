@@ -964,7 +964,7 @@ async function faturaDetayKaydet(faturaKey, overlay, kapat){
 
   await manuelKaydiGuncelle(faturaKey, {durum, not: notMetni});
 
-  state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+  state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari, state.zincirVknListesi, state.faturaSubeAtamalari);
   await saveRaporToStorage();
 
   if(typeof kapat==='function') kapat(); else overlay.remove();
@@ -974,8 +974,37 @@ async function faturaDetayKaydet(faturaKey, overlay, kapat){
 }
 
 function subeAtamaBlokHtml(f){
-  const manuelAtanmisMi = vknSubesiAtanmisMi(f.vkn); // 'kesan' | 'bayrampasa' | null
+  const zincirMi = vknZincirMi(f.vkn); // Migros gibi: VKN paylaşımlı marka
+  const manuelAtanmisMi = vknSubesiAtanmisMi(f.vkn); // 'kesan' | 'bayrampasa' | null (VKN bazlı, zincir DEĞİLSE geçerli)
+  const faturaAtanmisMi = faturaSubesiAtanmisMi(f.faturaKey); // 'kesan' | 'bayrampasa' | null (fatura bazlı, sadece zincirler için)
   const suanSubeGrubu = f.subeGrup; // computeRapor'un o an atadığı grup (kontrol/kesan/bayrampasa)
+
+  // ZİNCİR VKN (örn. Migros): VKN bazlı atama burada GEÇERSİZ — her fatura kendi
+  // başına, faturaKey'e göre atanır. Zincir listesinden çıkarma seçeneği de sunulur.
+  if(zincirMi){
+    const durumEtiketi = faturaAtanmisMi
+      ? `<span class="badge badge-manuel ${faturaAtanmisMi==='kesan'?'badge-success':'badge-purple'}"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i> ${faturaAtanmisMi==='kesan'?'Keşan':'Bayrampaşa'} (bu fatura için, elle)</span>`
+      : `<span class="badge badge-warn"><i class="fa-solid fa-link" aria-hidden="true"></i> Zincir VKN — her fatura kendi başına atanır</span>`;
+
+    return `
+      <div class="sube-atama-blok">
+        <div class="upload-section-label">ŞUBE</div>
+        <div style="margin:6px 0 10px;">${durumEtiketi}</div>
+        <div class="sube-atama-grid">
+          <button type="button" class="sube-atama-btn fatura-sube-atama-btn ${faturaAtanmisMi==='kesan'?'active':''}" data-sube="kesan">
+            <i class="fa-solid fa-building" aria-hidden="true"></i> Keşan'a ata
+          </button>
+          <button type="button" class="sube-atama-btn fatura-sube-atama-btn ${faturaAtanmisMi==='bayrampasa'?'active':''}" data-sube="bayrampasa">
+            <i class="fa-solid fa-building" aria-hidden="true"></i> Bayrampaşa'ya ata
+          </button>
+        </div>
+        ${faturaAtanmisMi ? `<button type="button" class="manuel-durum-temizle" id="btnFaturaSubeAtamaTemizle"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Bu faturanın atamasını kaldır</button>` : ''}
+        <div class="sube-atama-not">Bu VKN "zincir" olarak işaretli (aynı VKN'yi birden fazla şubede/bölgede kullanan marka) — atama SADECE bu faturaya özeldir, aynı VKN'nin başka faturalarını etkilemez.</div>
+        <button type="button" class="manuel-durum-temizle" id="btnZincirVknCikar" style="margin-top:6px;"><i class="fa-solid fa-unlink" aria-hidden="true"></i> Bu VKN'yi zincir listesinden çıkar</button>
+      </div>
+    `;
+  }
+
   // Sadece Kontrol grubundaki (ya da daha önce manuel atanmış) faturalarda gösterilir —
   // zaten Müşteri Master'dan otomatik atanan faturalarda bu bloğun bir işlevi yok.
   if(suanSubeGrubu !== 'kontrol' && !manuelAtanmisMi) return '';
@@ -998,6 +1027,7 @@ function subeAtamaBlokHtml(f){
       </div>
       ${manuelAtanmisMi ? `<button type="button" class="manuel-durum-temizle" id="btnSubeAtamaTemizle"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Şube atamasını kaldır</button>` : ''}
       <div class="sube-atama-not">Bu VKN'ye ait tüm faturalar (geçmiş ve gelecek dönemler dahil) otomatik olarak seçilen şubeye düşer.</div>
+      ${suanSubeGrubu==='kontrol' ? `<button type="button" class="manuel-durum-temizle" id="btnZincirVknEkle" style="margin-top:6px;"><i class="fa-solid fa-link" aria-hidden="true"></i> Bu VKN'yi "zincir" olarak işaretle (VKN paylaşımlı marka)</button>` : ''}
     </div>
   `;
 }
@@ -1032,6 +1062,10 @@ function faturaDetayModalAc(key){
       </div>
       <div style="color:rgba(255,255,255,.65); font-size:12px; margin-bottom:14px;">
         <span class="fno" style="color:#8FB4FF;">${escapeHtml(f.faturaNo)}</span> · ${escapeHtml(f.gonderenUnvan)}
+        <div style="margin-top:6px; font-size:11px; color:rgba(255,255,255,.4);">
+          VKN/TCKN: <span style="color:rgba(255,255,255,.7);">${escapeHtml(String(f.vkn==null?'—':f.vkn))}</span>
+          <span style="color:rgba(255,255,255,.3);"> (normalize: ${escapeHtml(normVKN(f.vkn) || '—')})</span>
+        </div>
       </div>
 
       <div class="upload-row" style="margin-bottom:14px;">
@@ -1100,7 +1134,10 @@ function faturaDetayModalAc(key){
   // Şube atama butonları: tıklanınca ANINDA (Kaydet'e basmayı beklemeden) kalıcı olarak
   // yazılır ve rapor yeniden hesaplanıp modal güncel haliyle yeniden açılır — kullanıcı
   // atamanın hemen etkili olduğunu görsün.
-  overlay.querySelectorAll('.sube-atama-btn').forEach(btn=>{
+  // NOT: fatura-sube-atama-btn (zincir VKN'ler için, faturaKey bazlı) ve normal
+  // sube-atama-btn (VKN bazlı) AYRI seçicilerle ele alınır — birbirine karışmasın diye
+  // :not(.fatura-sube-atama-btn) ile normal VKN bazlı butonlar filtrelenir.
+  overlay.querySelectorAll('.sube-atama-btn:not(.fatura-sube-atama-btn)').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const secilenGrup = btn.dataset.sube;
       const zatenBuGrupMu = vknSubesiAtanmisMi(f.vkn) === secilenGrup;
@@ -1114,6 +1151,49 @@ function faturaDetayModalAc(key){
   if(subeTemizleBtn){
     subeTemizleBtn.addEventListener('click', async ()=>{
       await vknSubesiniAta(f.vkn, null);
+      await subeAtamasiSonrasiYenidenHesapla();
+      overlay.remove();
+      faturaDetayModalAc(key);
+    });
+  }
+
+  // Fatura bazlı şube atama butonları (SADECE zincir VKN'ler için gösterilir) —
+  // faturaKey'e göre atanır, VKN'ye değil; aynı VKN'nin başka faturalarını etkilemez.
+  overlay.querySelectorAll('.fatura-sube-atama-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const secilenGrup = btn.dataset.sube;
+      const zatenBuGrupMu = faturaSubesiAtanmisMi(f.faturaKey) === secilenGrup;
+      await faturaSubesiniAta(f.faturaKey, zatenBuGrupMu ? null : secilenGrup);
+      await subeAtamasiSonrasiYenidenHesapla();
+      overlay.remove();
+      faturaDetayModalAc(key);
+    });
+  });
+  const faturaSubeTemizleBtn = overlay.querySelector('#btnFaturaSubeAtamaTemizle');
+  if(faturaSubeTemizleBtn){
+    faturaSubeTemizleBtn.addEventListener('click', async ()=>{
+      await faturaSubesiniAta(f.faturaKey, null);
+      await subeAtamasiSonrasiYenidenHesapla();
+      overlay.remove();
+      faturaDetayModalAc(key);
+    });
+  }
+
+  // Zincir VKN listesine ekleme/çıkarma — Kontrol grubunda görünen "Bu VKN'yi zincir
+  // olarak işaretle" ve zincir bloğundaki "listesinden çıkar" butonları.
+  const zincirEkleBtn = overlay.querySelector('#btnZincirVknEkle');
+  if(zincirEkleBtn){
+    zincirEkleBtn.addEventListener('click', async ()=>{
+      await zincirVknEkle(f.vkn);
+      await subeAtamasiSonrasiYenidenHesapla();
+      overlay.remove();
+      faturaDetayModalAc(key);
+    });
+  }
+  const zincirCikarBtn = overlay.querySelector('#btnZincirVknCikar');
+  if(zincirCikarBtn){
+    zincirCikarBtn.addEventListener('click', async ()=>{
+      await zincirVknCikar(f.vkn);
       await subeAtamasiSonrasiYenidenHesapla();
       overlay.remove();
       faturaDetayModalAc(key);
@@ -1137,7 +1217,7 @@ function faturaDetayModalAc(key){
 // "arşivleme" değil, canlı raporun anlık yeniden hesabıdır (arşiv, bir sonraki
 // "Raporu Oluştur" çağrısında bu güncel şube bilgisiyle otomatik güncellenir).
 async function subeAtamasiSonrasiYenidenHesapla(){
-  state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+  state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari, state.zincirVknListesi, state.faturaSubeAtamalari);
   await saveRaporToStorage();
   renderKPIs();
   renderGroupTabs();

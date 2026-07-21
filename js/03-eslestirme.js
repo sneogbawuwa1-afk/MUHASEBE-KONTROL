@@ -10,8 +10,18 @@ function tutarToleransiAyarla(deger){
   TUTAR_TOLERANS = (isNaN(n) || n < 0) ? TUTAR_TOLERANS_VARSAYILAN : n;
 }
 
-function belirleSube(faturaVkn, faturaNo, efesKesanMi, efesFaturaNoSeti, kesanVknSeti, bayrampasaVknSeti, manuelSubeAtamalari){
+function belirleSube(faturaVkn, faturaNo, efesKesanMi, efesFaturaNoSeti, kesanVknSeti, bayrampasaVknSeti, manuelSubeAtamalari, zincirVknSeti){
   const vkn = normVKN(faturaVkn);
+
+  // ZİNCİR VKN İSTİSNASI: Migros gibi Türkiye genelinde tüm şubeleri aynı VKN'yi
+  // kullanan markalar için — bu VKN Müşteri Master'da bulunsa, hatta manuel VKN
+  // ataması yapılmış olsa bile HER ZAMAN "Kontrol" grubuna düşer (en yüksek öncelik,
+  // manuel VKN atamasından bile önce kontrol edilir). Kullanıcı bu markanın her
+  // faturasını KENDİ BAŞINA (VKN'ye değil, o faturanın kendisine göre) elle
+  // Keşan/Bayrampaşa'ya atar — bkz. computeRapor'daki faturaSubeAtamalari.
+  if(zincirVknSeti && zincirVknSeti.has(vkn)){
+    return {grup:'kontrol', alt:'Kontrol'};
+  }
 
   // MANUEL ŞUBE ATAMASI: kullanıcı bu VKN'yi elle Keşan/Bayrampaşa'ya atamışsa, bu her
   // zaman en yüksek önceliğe sahiptir — Efes özel mantığından ve müşteri master
@@ -37,7 +47,7 @@ function belirleSube(faturaVkn, faturaNo, efesKesanMi, efesFaturaNoSeti, kesanVk
   return {grup:'kontrol', alt:'Kontrol'};
 }
 
-function computeRapor(kaynaklar, manuel, subeAtamalari){
+function computeRapor(kaynaklar, manuel, subeAtamalari, zincirVknListesi, faturaSubeAtamalari){
   manuel = manuel || {};
   // subeAtamalari: {vkn(normalize): 'kesan'|'bayrampasa'} kalıcı VKN->şube kararları.
   // Map bekleniyor; obje verilirse (örn. IndexedDB'den plain object dönmüşse) Map'e çevrilir.
@@ -47,6 +57,19 @@ function computeRapor(kaynaklar, manuel, subeAtamalari){
   const manuelSubeAtamalari = mapGibiMi
     ? subeAtamalari
     : new Map(Object.entries(subeAtamalari || {}));
+
+  // zincirVknListesi: Set<vkn> ya da dizi/obje olarak gelebilir (senkron katmanından
+  // dönen halinden bağımsız olarak) — duck-typing ile Set'e normalize ediyoruz.
+  const zincirSetGibiMi = zincirVknListesi && typeof zincirVknListesi.has === 'function';
+  const zincirVknSeti = zincirSetGibiMi ? zincirVknListesi : new Set(Array.isArray(zincirVknListesi) ? zincirVknListesi : []);
+
+  // faturaSubeAtamalari: Map<faturaKey, 'kesan'|'bayrampasa'> — VKN'den BAĞIMSIZ,
+  // sadece o faturaya özel geçici atama (bkz. state.faturaSubeAtamalari tanımı).
+  const faturaSubeMapGibiMi = faturaSubeAtamalari && typeof faturaSubeAtamalari.get === 'function';
+  const faturaSubeAtamalariMap = faturaSubeMapGibiMi
+    ? faturaSubeAtamalari
+    : new Map(Object.entries(faturaSubeAtamalari || {}));
+
   const logoRows = kaynaklar.efaturaLogo ? parseLogoRows(kaynaklar.efaturaLogo.rows) : [];
   const qnbRows = kaynaklar.efaturaQnb ? parseQnbRows(kaynaklar.efaturaQnb.rows) : [];
   const earsivRows = kaynaklar.earsiv ? parseEarsivRows(kaynaklar.earsiv.rows) : [];
@@ -81,7 +104,19 @@ function computeRapor(kaynaklar, manuel, subeAtamalari){
   const efesKesanMi = kaynaklar.efesEkstre ? efesEkstreKesanMi(kaynaklar.efesEkstre.rows) : null;
   const efesFaturaNoSeti = kaynaklar.efesEkstre ? efesEkstreFaturaNoSeti(kaynaklar.efesEkstre.rows) : new Set();
 
-  const subeTayiniYap = (vkn, faturaNo)=> belirleSube(vkn, faturaNo, efesKesanMi, efesFaturaNoSeti, kesanVknSeti, bayrampasaVknSeti, manuelSubeAtamalari);
+  const subeTayiniYap = (vkn, faturaNo)=> belirleSube(vkn, faturaNo, efesKesanMi, efesFaturaNoSeti, kesanVknSeti, bayrampasaVknSeti, manuelSubeAtamalari, zincirVknSeti);
+
+  // Fatura bazlı geçici şube ataması: subeTayiniYap "kontrol" dediyse ama bu SPESİFİK
+  // faturaKey için kullanıcı elle bir şube atamışsa, o ata uygulanır. VKN bazlı
+  // subeAtamalari'ndan farklı olarak burası SADECE bu faturaya özeldir — aynı VKN'nin
+  // başka bir faturasını etkilemez.
+  function subeTayininiFaturayaGoreUygula(sube, faturaKey){
+    if(sube.grup !== 'kontrol') return sube; // sadece Kontrol'e düşenler için anlamlı
+    const atanmisGrup = faturaSubeAtamalariMap.get(faturaKey);
+    if(atanmisGrup === 'kesan') return {grup:'kesan', alt:'Keşan (bu ay, elle)'};
+    if(atanmisGrup === 'bayrampasa') return {grup:'bayrampasa', alt:'Bayrampaşa (bu ay, elle)'};
+    return sube;
+  }
 
   // Normalleşen manuel işaretler: kullanıcı bir faturayı manuel "eslesti" işaretlemişti
   // (o an Netsis'te yoktu) ama yeni yüklenen Netsis verisinde fatura ARTIK GERÇEKTEN
@@ -177,11 +212,12 @@ function computeRapor(kaynaklar, manuel, subeAtamalari){
       durum = 'islenmemis'; durumEtiket = 'Netsis\'te bulunamadı';
     }
 
-    const sube = (f.vkn === '' || f.vkn == null)
+    const sube_ilk = (f.vkn === '' || f.vkn == null)
       ? {grup:'kontrol', alt:'Kontrol'}
       : subeTayiniYap(f.vkn, f.faturaNo);
 
     const anahtar = matchKey(f.vkn, f.faturaNo);
+    const sube = subeTayininiFaturayaGoreUygula(sube_ilk, anahtar);
     const manuelKayit = manuel[anahtar] || null;
 
     const satirHam = {
@@ -201,7 +237,8 @@ function computeRapor(kaynaklar, manuel, subeAtamalari){
     .map(r=>({r, key: matchKey(r.vkn, r.belgeNo)}))
     .filter(x=> !kullanilanNetsisKey.has(x.key))
     .map(({r, key})=>{
-      const sube = subeTayiniYap(r.vkn, r.belgeNo);
+      const sube_ilk = subeTayiniYap(r.vkn, r.belgeNo);
+      const sube = subeTayininiFaturayaGoreUygula(sube_ilk, key);
       const manuelKayit = manuel[key] || null;
       const satirHam = {
         vkn: r.vkn,
