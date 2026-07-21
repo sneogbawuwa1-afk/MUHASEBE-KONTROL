@@ -282,6 +282,7 @@ table.data-table tr.row:hover td{background:#F8FAFD;}
 }
 .fno-kopyala-btn:hover{background:var(--blue-soft);color:var(--blue);border-color:var(--blue);}
 .fno-kopyala-btn.kopyalandi{background:var(--green-soft);color:var(--green);border-color:var(--green);}
+.cari-kodu-yok{color:var(--gray-4,#9AA4B2);font-size:12.5px;}
 .desc{color:var(--ink-soft);font-weight:500;max-width:340px;overflow:hidden;text-overflow:ellipsis;}
 td.num{font-weight:800;letter-spacing:-.01em;}
 .src-badge{

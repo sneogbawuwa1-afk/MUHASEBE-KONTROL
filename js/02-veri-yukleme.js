@@ -87,6 +87,7 @@ function parseNetsisRows(rows){
     belgeNo: r['Belge No'],
     tarih: excelDateToJS(r['Tarih']),
     cariIsim: String(r['Cari İsim']||'').trim(),
+    cariKodu: String(r['Cari Kodu']||'').trim(),
     kdv: toNumber(r['KDV Toplamı']),
     tutar: toNumber(r['Genel Toplam']),
   }));

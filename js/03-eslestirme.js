@@ -99,6 +99,28 @@ function computeRapor(kaynaklar, manuel, subeAtamalari, zincirVknListesi, fatura
     return adaylar.find(r=> faturaNoYakinMi(faturaNo, r.belgeNo)) || null;
   }
 
+  // VKN EŞLEŞMESİYLE CARİ KODU: fatura no bazında Netsis'te tam eşleşme bulunamasa
+  // (örn. "Netsis'te bulunamadı" durumu) bile, aynı VKN'ye ait BAŞKA bir Netsis
+  // kaydı varsa oradan cari kodunu alırız — cari kodu VKN'ye bağlı sabit bir bilgi
+  // olduğu için hangi faturadan geldiği önemli değildir. Aynı VKN altında birden
+  // fazla farklı cari kodu görülürse (nadir, ama olası) en sık geçen kullanılır.
+  function vknIleCariKoduBul(vkn){
+    const adaylar = netsisByVkn.get(normVKN(vkn)) || [];
+    if(!adaylar.length) return '';
+    const sayac = new Map();
+    adaylar.forEach(r=>{
+      const kod = String(r.cariKodu||'').trim();
+      if(!kod) return;
+      sayac.set(kod, (sayac.get(kod)||0)+1);
+    });
+    if(!sayac.size) return '';
+    let enSikKod = '', enSikSayi = -1;
+    sayac.forEach((sayi, kod)=>{
+      if(sayi > enSikSayi){ enSikSayi = sayi; enSikKod = kod; }
+    });
+    return enSikKod;
+  }
+
   const kesanVknSeti = kaynaklar.musteriKesan ? parseMusteriMasterVknSeti(kaynaklar.musteriKesan.rows) : new Set();
   const bayrampasaVknSeti = kaynaklar.musteriBayrampasa ? parseMusteriMasterVknSeti(kaynaklar.musteriBayrampasa.rows) : new Set();
   const efesKesanMi = kaynaklar.efesEkstre ? efesEkstreKesanMi(kaynaklar.efesEkstre.rows) : null;
@@ -238,12 +260,16 @@ function computeRapor(kaynaklar, manuel, subeAtamalari, zincirVknListesi, fatura
     const sube = subeTayininiFaturayaGoreUygula(sube_ilk, anahtar);
     const manuelKayit = manuel[anahtar] || null;
 
+    // Cari kodu: önce tam fatura eşleşmesinden (netsisEs), yoksa VKN bazlı eşleşmeyle bulunur.
+    const cariKodu = netsisEs && netsisEs.cariKodu ? netsisEs.cariKodu : vknIleCariKoduBul(f.vkn);
+
     const satirHam = {
       ...f,
       durum, durumEtiket, farkDetay,
       sube: sube.alt, subeGrup: sube.grup,
       netsisTutar: netsisEs ? netsisEs.tutar : null,
       netsisKdv: netsisEs ? netsisEs.kdv : null,
+      cariKodu,
       yon: 'entegrator',
       faturaKey: anahtar,
     };
@@ -265,6 +291,7 @@ function computeRapor(kaynaklar, manuel, subeAtamalari, zincirVknListesi, fatura
         tutar: r.tutar,
         kdv: r.kdv,
         gonderenUnvan: r.cariIsim,
+        cariKodu: r.cariKodu || '',
         redIptal: false,
         kaynak: 'netsis',
         durum: 'entegratorde_yok',

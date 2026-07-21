@@ -600,6 +600,24 @@ function faturaNoHucreHtml(faturaNo){
   `;
 }
 
+// Cari kodu hücresi: fatura no hücresiyle aynı kopyalama mantığını paylaşır
+// (bkz. panoyaKopyalaBaglaEventleri / fnoKopyalaDelegationBagla, data-kopyala
+// attribute'unu her iki buton tipi için de dinler).
+function cariKoduHucreHtml(cariKodu){
+  const deger = String(cariKodu==null?'':cariKodu).trim();
+  if(!deger){
+    return `<span class="cari-kodu-yok">—</span>`;
+  }
+  return `
+    <span class="fno-hucre">
+      <span class="fno">${escapeHtml(deger)}</span>
+      <button type="button" class="fno-kopyala-btn" data-kopyala="${escapeHtml(deger)}" title="Cari kodu'nu kopyala" aria-label="Cari kodu'nu kopyala">
+        <i class="fa-regular fa-copy" aria-hidden="true"></i>
+      </button>
+    </span>
+  `;
+}
+
 async function faturaNoKopyala(btn){
   const deger = btn.dataset.kopyala || '';
   try{
@@ -653,6 +671,7 @@ function faturaSatirHtml(f){
       <td>${tarihHucreHtml(f.faturaTarihi)}</td>
       <td>${faturaNoHucreHtml(f.faturaNo)}</td>
       <td class="desc">${escapeHtml(f.gonderenUnvan)}</td>
+      <td>${cariKoduHucreHtml(f.cariKodu)}</td>
       <td class="num">${fmtTL(tutarGosterilen)}</td>
       <td>${escapeHtml(f.sube)}</td>
       <td>${f.yon==='netsis' ? '<span class="src-badge">Netsis</span>' : '<span class="src-badge">Entegratör</span>'}</td>
@@ -671,6 +690,7 @@ const SIRALANABILIR_KOLONLAR = [
   {key:'faturaTarihi', label:'Tarih'},
   {key:'faturaNo', label:'Fatura no'},
   {key:'gonderenUnvan', label:'Gönderen'},
+  {key:'cariKodu', label:'Cari kodu'},
   {key:'tutar', label:'Tutar'},
 ];
 
@@ -679,6 +699,7 @@ function siraDegerAl(f, alan){
   if(alan==='faturaTarihi') return f.faturaTarihi ? new Date(f.faturaTarihi).getTime() : 0;
   if(alan==='faturaNo') return String(f.faturaNo||'');
   if(alan==='gonderenUnvan') return String(f.gonderenUnvan||'');
+  if(alan==='cariKodu') return String(f.cariKodu||'');
   return '';
 }
 
@@ -843,14 +864,15 @@ function aramayaGoreFiltrele(satirlar){
   if(!q) return satirlar;
   return satirlar.filter(f=>
     String(f.gonderenUnvan||'').toLocaleLowerCase('tr-TR').includes(q) ||
-    String(f.faturaNo||'').toLocaleLowerCase('tr-TR').includes(q)
+    String(f.faturaNo||'').toLocaleLowerCase('tr-TR').includes(q) ||
+    String(f.cariKodu||'').toLocaleLowerCase('tr-TR').includes(q)
   );
 }
 
 function renderSearchBox(){
   return `
     <div class="search-box-wrap">
-      <input type="text" id="aramaKutusu" class="search-box" placeholder="Cari unvan veya fatura no ile ara..." value="${escapeHtml(aramaMetni)}">
+      <input type="text" id="aramaKutusu" class="search-box" placeholder="Cari unvan, fatura no veya cari kodu ile ara..." value="${escapeHtml(aramaMetni)}">
       <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
     </div>
   `;
