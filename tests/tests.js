@@ -7,6 +7,7 @@ const path = require('path');
 const kod01 = fs.readFileSync(path.join(__dirname, '..', 'js', '01-cekirdek.js'), 'utf8');
 const kod02 = fs.readFileSync(path.join(__dirname, '..', 'js', '02-veri-yukleme.js'), 'utf8');
 const kod03 = fs.readFileSync(path.join(__dirname, '..', 'js', '03-eslestirme.js'), 'utf8');
+const kod04 = fs.readFileSync(path.join(__dirname, '..', 'js', '04-genel-bakis.js'), 'utf8');
 const kod07 = fs.readFileSync(path.join(__dirname, '..', 'js', '07-donem-arsivi.js'), 'utf8');
 const kod08 = fs.readFileSync(path.join(__dirname, '..', 'js', '08-senkron-katmani.js'), 'utf8');
 const kod09 = fs.readFileSync(path.join(__dirname, '..', 'js', '09-firebase.js'), 'utf8');
@@ -27,6 +28,7 @@ vm.runInContext(kod03, context);
 vm.runInContext(kod07, context);
 vm.runInContext(kod08, context);
 vm.runInContext(kod09, context);
+vm.runInContext(kod04, context);
 
 const {
   normVKN, parseFaturaNo, digitsYakinMi, faturaNoYakinMi, matchKey, toNumber,
@@ -35,7 +37,7 @@ const {
   donemKarsilastirmaHesapla, gunBazliBosluklariHesapla, donemToplamOzetiHesapla,
   vknSubesiAtanmisMi, donemFarkiAySayisi, donemOtomatikYazilabilirMi,
   donemGuncellemeAnaliziniYap, donemOnayiUygula, donemeAitSatirlariFiltrele,
-  derinDateTemizle, derinAnahtarKodla, derinAnahtarKodCoz,
+  derinDateTemizle, derinAnahtarKodla, derinAnahtarKodCoz, subeAtamaBlokHtml,
 } = context;
 
 // NOT: `const state = {...}` gibi top-level bindingler Node'un vm.runInContext'inde
@@ -325,6 +327,39 @@ test('computeRapor üçüncü/dördüncü/beşinci parametreler verilmezse (unde
   // zincir kontrolü yoksa Master'da kayıtlı VKN normal şekilde Keşan'a düşer
   const f1 = rapor.faturalar.find(x=> x.faturaNo==='M022026001306267');
   assert.strictEqual(f1.subeGrup, 'kesan');
+});
+
+baslik('\nsubeAtamaBlokHtml — "ŞUBE" bölümü görünürlüğü regresyon testi (bildirilen bug)');
+test('VKN Müşteri Master\'da kayıtlı olup otomatik Keşan\'a düşse BİLE "zincir olarak işaretle" butonu görünür (BUG: önceden boş string dönüyordu)', ()=>{
+  vm.runInContext('state.zincirVknListesi = new Set(); state.subeAtamalari = new Map(); state.faturaSubeAtamalari = new Map();', context);
+  const f = { vkn: '6220529513', faturaKey: 'test-key-1', subeGrup: 'kesan', sube: 'Keşan' };
+  const html = subeAtamaBlokHtml(f);
+  assert.notStrictEqual(html.trim(), '', 'ŞUBE bölümü boş DÖNMEMELİ');
+  assert.ok(html.includes('btnZincirVknEkle'), '"zincir olarak işaretle" butonu bulunmalı');
+  assert.ok(html.includes('ŞUBE'), 'ŞUBE başlığı görünmeli');
+});
+test('VKN Kontrol grubundaysa (hiçbir master\'da yok) da "zincir olarak işaretle" butonu görünür', ()=>{
+  vm.runInContext('state.zincirVknListesi = new Set(); state.subeAtamalari = new Map(); state.faturaSubeAtamalari = new Map();', context);
+  const f = { vkn: '9998887776', faturaKey: 'test-key-2', subeGrup: 'kontrol', sube: 'Kontrol' };
+  const html = subeAtamaBlokHtml(f);
+  assert.ok(html.includes('btnZincirVknEkle'));
+});
+test('VKN zaten zincir listesindeyse "zincir olarak işaretle" yerine fatura bazlı atama arayüzü gösterilir', ()=>{
+  context.__test_zincir_set = new Set([normVKN('6220529513')]);
+  vm.runInContext('state.zincirVknListesi = __test_zincir_set; state.subeAtamalari = new Map(); state.faturaSubeAtamalari = new Map();', context);
+  const f = { vkn: '6220529513', faturaKey: 'test-key-3', subeGrup: 'kontrol', sube: 'Kontrol' };
+  const html = subeAtamaBlokHtml(f);
+  assert.ok(html.includes('fatura-sube-atama-btn'), 'fatura bazlı atama butonları gösterilmeli');
+  assert.ok(html.includes('btnZincirVknCikar'), '"zincirden çıkar" seçeneği gösterilmeli');
+  assert.ok(!html.includes('btnZincirVknEkle'), 'zaten zincirdeyken tekrar "ekle" butonu gösterilmemeli');
+});
+test('VKN manuel olarak (VKN bazlı) atanmışsa doğru rozet gösterilir ve "zincir olarak işaretle" hâlâ mevcuttur', ()=>{
+  context.__test_manuel_atama = new Map([[normVKN('1112223334'), 'kesan']]);
+  vm.runInContext('state.zincirVknListesi = new Set(); state.subeAtamalari = __test_manuel_atama; state.faturaSubeAtamalari = new Map();', context);
+  const f = { vkn: '1112223334', faturaKey: 'test-key-4', subeGrup: 'kesan', sube: 'Keşan (manuel)' };
+  const html = subeAtamaBlokHtml(f);
+  assert.ok(html.includes('manuel atandı'), 'manuel atama rozeti gösterilmeli');
+  assert.ok(html.includes('btnZincirVknEkle'), 'manuel atanmış VKN için de zincir işaretleme seçeneği sunulmalı');
 });
 
 baslik('\nvknSubesiAtanmisMi (state.subeAtamalari okuma)');

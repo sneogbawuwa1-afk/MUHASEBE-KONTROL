@@ -1005,13 +1005,17 @@ function subeAtamaBlokHtml(f){
     `;
   }
 
-  // Sadece Kontrol grubundaki (ya da daha önce manuel atanmış) faturalarda gösterilir —
-  // zaten Müşteri Master'dan otomatik atanan faturalarda bu bloğun bir işlevi yok.
-  if(suanSubeGrubu !== 'kontrol' && !manuelAtanmisMi) return '';
-
+  // ZİNCİR DEĞİL: normal VKN bazlı akış. "Zincir olarak işaretle" seçeneği HER ZAMAN
+  // gösterilir (VKN otomatik Keşan/Bayrampaşa'ya düşmüş olsa bile) — aksi halde Migros
+  // gibi Müşteri Master'da zaten kayıtlı bir VKN için bu seçenek hiç görünmezdi
+  // (tavuk-yumurta sorunu: zincir işaretlemek için önce Kontrol'e düşmesi gerekmiyor,
+  // tam tersi olmalı — Kontrol'e düşmesi İÇİN zincir işaretlenir).
+  const otomatikAtanmisMi = !manuelAtanmisMi && suanSubeGrubu !== 'kontrol'; // Müşteri Master'dan geldi
   const durumEtiketi = manuelAtanmisMi
     ? `<span class="badge badge-manuel ${manuelAtanmisMi==='kesan'?'badge-success':'badge-purple'}"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i> ${manuelAtanmisMi==='kesan'?'Keşan':'Bayrampaşa'} (manuel atandı)</span>`
-    : `<span class="badge badge-warn"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Kontrol — VKN hiçbir müşteri master'da yok</span>`;
+    : otomatikAtanmisMi
+      ? `<span class="badge badge-success"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> ${escapeHtml(f.sube)} (Müşteri Master'dan otomatik)</span>`
+      : `<span class="badge badge-warn"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Kontrol — VKN hiçbir müşteri master'da yok</span>`;
 
   return `
     <div class="sube-atama-blok">
@@ -1027,7 +1031,7 @@ function subeAtamaBlokHtml(f){
       </div>
       ${manuelAtanmisMi ? `<button type="button" class="manuel-durum-temizle" id="btnSubeAtamaTemizle"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Şube atamasını kaldır</button>` : ''}
       <div class="sube-atama-not">Bu VKN'ye ait tüm faturalar (geçmiş ve gelecek dönemler dahil) otomatik olarak seçilen şubeye düşer.</div>
-      ${suanSubeGrubu==='kontrol' ? `<button type="button" class="manuel-durum-temizle" id="btnZincirVknEkle" style="margin-top:6px;"><i class="fa-solid fa-link" aria-hidden="true"></i> Bu VKN'yi "zincir" olarak işaretle (VKN paylaşımlı marka)</button>` : ''}
+      <button type="button" class="manuel-durum-temizle" id="btnZincirVknEkle" style="margin-top:6px;"><i class="fa-solid fa-link" aria-hidden="true"></i> Bu VKN'yi "zincir" olarak işaretle (VKN paylaşımlı marka)</button>
     </div>
   `;
 }
