@@ -100,6 +100,82 @@ function derinDateTemizle(deger){
   return JSON.parse(JSON.stringify(deger));
 }
 
+// ============================================================================
+// RTDB ANAHTAR (KEY) UYUMLULUĞU
+//
+// Firebase Realtime Database, obje ANAHTARLARINDA (property adlarında) şu karakterleri
+// YASAKLAR: . # $ / [ ]  — .set() bu karakterlerden birini içeren bir anahtar görürse
+// TÜM YAZMA İŞLEMİNİ reddeder (tek bir kötü anahtar bile olsa).
+//
+// Sorun: yüklenen Excel dosyalarının HAM satırları (state.kaynaklar.*.rows), sütun
+// başlıklarını olduğu gibi obje anahtarı olarak taşıyor — örn. E-Arşiv dosyasındaki
+// "İptal / İtiraz Durumu" sütunu, satır objesinde `row['İptal / İtiraz Durumu']` olarak
+// duruyor ve içindeki "/" karakteri RTDB'yi kırıyor.
+//
+// Çözüm: RTDB'ye yazmadan önce, TÜM anahtarlardaki yasak karakterleri tersine çevrilebilir
+// bir şekilde kodluyoruz (örn. "/" -> "__SLASH__"), okurken de aynı kodu tersine çevirip
+// orijinal anahtarı geri getiriyoruz. Bu sayede:
+//   - state/IndexedDB tarafı HİÇ etkilenmez (computeRapor içindeki parseEarsivRows gibi
+//     fonksiyonlar hâlâ orijinal Türkçe sütun adlarını arayabilir).
+//   - Sadece RTDB'ye giden/RTDB'den gelen veri bu kodlamadan geçer.
+// ============================================================================
+const RTDB_YASAKLI_KARAKTER_KODLARI = [
+  ['.', '__NOKTA__'],
+  ['#', '__DIYEZ__'],
+  ['$', '__DOLAR__'],
+  ['/', '__BOLU__'],
+  ['[', '__ACIK_KOSE__'],
+  [']', '__KAPALI_KOSE__'],
+];
+
+function anahtarKodla(anahtar){
+  let sonuc = anahtar;
+  RTDB_YASAKLI_KARAKTER_KODLARI.forEach(([karakter, kod])=>{
+    sonuc = sonuc.split(karakter).join(kod);
+  });
+  return sonuc;
+}
+
+function anahtarKodCoz(anahtar){
+  let sonuc = anahtar;
+  // Ters sırada çözülür (kodlama sırasında oluşabilecek çakışmaları önlemek için,
+  // ama pratikte kodlar birbirinden ayrık olduğundan sıra önemli değildir).
+  RTDB_YASAKLI_KARAKTER_KODLARI.forEach(([karakter, kod])=>{
+    sonuc = sonuc.split(kod).join(karakter);
+  });
+  return sonuc;
+}
+
+// Bir objenin (ve iç içe tüm alt objelerin/dizilerin) TÜM anahtarlarını RTDB-güvenli
+// hale getirir. Değerlere dokunmaz, sadece anahtar adlarını dönüştürür.
+function derinAnahtarKodla(deger){
+  if(Array.isArray(deger)) return deger.map(derinAnahtarKodla);
+  if(deger && typeof deger === 'object'){
+    // Date nesnesi gibi özel objeler (varsa) plain object olarak ele alınmamalı —
+    // ama bu noktaya gelen veri zaten derinDateTemizle'den geçmiş olacak (bkz. syncYaz),
+    // yani sadece plain object/array/primitive kalıyor.
+    const yeniObje = {};
+    Object.keys(deger).forEach(k=>{
+      yeniObje[anahtarKodla(k)] = derinAnahtarKodla(deger[k]);
+    });
+    return yeniObje;
+  }
+  return deger;
+}
+
+// derinAnahtarKodla'nın tersi — Firebase'den okunan veriyi orijinal anahtarlarına geri döndürür.
+function derinAnahtarKodCoz(deger){
+  if(Array.isArray(deger)) return deger.map(derinAnahtarKodCoz);
+  if(deger && typeof deger === 'object'){
+    const yeniObje = {};
+    Object.keys(deger).forEach(k=>{
+      yeniObje[anahtarKodCoz(k)] = derinAnahtarKodCoz(deger[k]);
+    });
+    return yeniObje;
+  }
+  return deger;
+}
+
 async function syncYaz(anahtar, deger){
   const cihazId = await cihazIdAl();
   const temizDeger = derinDateTemizle(deger);
@@ -115,10 +191,18 @@ async function syncYaz(anahtar, deger){
   if(firebaseVarMi && erisimAnahtari){
     try{
       const yol = KV_YOLU + '/' + rtdbYoluGuvenliHalGetir(anahtar);
-      await _rtdb.ref(yol).set({
-        ...sarmal,
+      // ÖNEMLİ: RTDB'ye SADECE anahtarları kodlanmış (RTDB-güvenli) bir kopya gönderiyoruz.
+      // IndexedDB'ye (idbSet) yazılan `sarmal` ise ORİJİNAL anahtarlarla kalır — bu sayede
+      // hem RTDB'nin "." "#" "$" "/" "[" "]" yasağı aşılır, hem de yerel state/işleme
+      // mantığı (computeRapor içindeki parseEarsivRows gibi orijinal Türkçe sütun adı
+      // arayan fonksiyonlar) hiç etkilenmez.
+      const rtdbIcinSarmal = {
+        deger: derinAnahtarKodla(temizDeger),
+        guncellemeZamani: sarmal.guncellemeZamani,
+        cihazId: sarmal.cihazId,
         erisimAnahtari, // güvenlik kurallarının kontrol ettiği alan
-      });
+      };
+      await _rtdb.ref(yol).set(rtdbIcinSarmal);
       await idbSet(anahtar, sarmal); // yerel yedek/önbellek olarak da tut (çevrimdışı okuma için)
       buluttaBaglantiDurumunuGuncelle(true);
       return sarmal;
@@ -141,9 +225,13 @@ async function syncOku(anahtar, varsayilan){
       const anlikGoruntu = await _rtdb.ref(yol).once('value');
       const veri = anlikGoruntu.val();
       if(veri && 'deger' in veri){
-        await idbSet(anahtar, {deger: veri.deger, guncellemeZamani: veri.guncellemeZamani, cihazId: veri.cihazId});
+        // RTDB'den gelen veri anahtar-kodlanmış haldeydi (bkz. syncYaz) — orijinal
+        // anahtarlara (örn. "İptal / İtiraz Durumu") geri çeviriyoruz ki computeRapor
+        // gibi fonksiyonlar bu alanları doğru isimle bulabilsin.
+        const cozulmusDeger = derinAnahtarKodCoz(veri.deger);
+        await idbSet(anahtar, {deger: cozulmusDeger, guncellemeZamani: veri.guncellemeZamani, cihazId: veri.cihazId});
         buluttaBaglantiDurumunuGuncelle(true);
-        return veri.deger;
+        return cozulmusDeger;
       }
       buluttaBaglantiDurumunuGuncelle(true);
     }catch(e){
@@ -293,10 +381,15 @@ async function canliDinlemeBaslat(){
       if(!veri || !('deger' in veri)) return;
       if(veri.cihazId === kendiCihazId) return; // kendi yazdığımız değişiklik, yoksay
 
+      // RTDB'den gelen veri anahtar-kodlanmış haldeydi (bkz. syncYaz) — orijinal
+      // anahtarlara geri çeviriyoruz, aksi halde "İptal / İtiraz Durumu" gibi alanlar
+      // "İptal __BOLU__ İtiraz Durumu" gibi kodlanmış haliyle state'e girer.
+      const cozulmusDeger = derinAnahtarKodCoz(veri.deger);
+
       // Başka bir cihazdan gelen değişiklik: önce yerel önbelleği (IndexedDB) güncelle,
       // sonra ilgili anahtara göre state'i tazeleyip SADECE o bölümü yeniden çiz.
-      idbSet(anahtar, {deger: veri.deger, guncellemeZamani: veri.guncellemeZamani, cihazId: veri.cihazId})
-        .then(()=> canliGuncellemeUygula(anahtar, veri.deger))
+      idbSet(anahtar, {deger: cozulmusDeger, guncellemeZamani: veri.guncellemeZamani, cihazId: veri.cihazId})
+        .then(()=> canliGuncellemeUygula(anahtar, cozulmusDeger))
         .catch((e)=> console.warn('Canlı güncelleme yerel önbelleğe yazılamadı:', e));
     }, (hata)=>{
       console.warn(`Canlı dinleme hatası (${anahtar}):`, hata);
@@ -361,12 +454,18 @@ function yenidenCizVeBildir(mesaj){
   canliBildirimGoster(mesaj);
 }
 
-// Ekranın sağ altında 2-3 saniyeliğine görünüp kaybolan küçük bir "toast" bildirimi —
-// kullanıcı neden ekranın kendiliğinden değiştiğini anlasın diye. DOM'a erişim
-// başarısız olursa (beklenmeyen bir tarayıcı/ortam farkı) sessizce geçilir — bildirim
-// gösterilememesi state güncellemesini asla etkilememeli.
+// Genel amaçlı toast bildirimi — ekranın sağ altında 2-3 saniyeliğine görünüp kaybolur.
+// Hem bulut senkron olayları (canlı güncelleme) hem de genel işlem geri bildirimleri
+// (rapor oluşturuldu, dosya yüklendi vb.) için tek bir mekanizma olarak kullanılır.
+// tip: 'bilgi' (varsayılan, mavi bulut ikonu) | 'basarili' (yeşil tik) | 'hata' (turuncu uyarı)
 let _canliBildirimZamanlayici = null;
-function canliBildirimGoster(mesaj){
+function toastGoster(mesaj, tip){
+  tip = tip || 'bilgi';
+  const ikonlar = {
+    bilgi: 'fa-solid fa-cloud-arrow-down',
+    basarili: 'fa-solid fa-circle-check',
+    hata: 'fa-solid fa-triangle-exclamation',
+  };
   try{
     let el = document.getElementById('canliSenkronBildirimi');
     if(!el){
@@ -375,11 +474,15 @@ function canliBildirimGoster(mesaj){
       el.className = 'canli-senkron-bildirim';
       document.body.appendChild(el);
     }
-    el.innerHTML = `<i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i> ${escapeHtml(mesaj)}`;
+    el.className = `canli-senkron-bildirim tip-${tip}`;
+    el.innerHTML = `<i class="${ikonlar[tip]||ikonlar.bilgi}" aria-hidden="true"></i> ${escapeHtml(mesaj)}`;
     el.classList.add('gorunur');
     clearTimeout(_canliBildirimZamanlayici);
     _canliBildirimZamanlayici = setTimeout(()=>{ el.classList.remove('gorunur'); }, 3200);
   }catch(e){
-    console.warn('Canlı senkron bildirimi gösterilemedi:', e);
+    console.warn('Toast bildirimi gösterilemedi:', e);
   }
 }
+// Geriye dönük uyumluluk: canliDinlemeBaslat içindeki eski çağrılar canliBildirimGoster
+// adını kullanıyor — aynı fonksiyona yönlendiriyoruz.
+function canliBildirimGoster(mesaj){ toastGoster(mesaj, 'bilgi'); }

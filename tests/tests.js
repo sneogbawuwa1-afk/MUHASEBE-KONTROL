@@ -35,7 +35,7 @@ const {
   donemKarsilastirmaHesapla, gunBazliBosluklariHesapla, donemToplamOzetiHesapla,
   vknSubesiAtanmisMi, donemFarkiAySayisi, donemOtomatikYazilabilirMi,
   donemGuncellemeAnaliziniYap, donemOnayiUygula, donemeAitSatirlariFiltrele,
-  derinDateTemizle,
+  derinDateTemizle, derinAnahtarKodla, derinAnahtarKodCoz,
 } = context;
 
 // NOT: `const state = {...}` gibi top-level bindingler Node'un vm.runInContext'inde
@@ -694,6 +694,45 @@ test('zaten string olan tarihlere dokunmaz', ()=>{
   const girdi = {faturaTarihi: '2026-06-15T00:00:00.000Z'};
   const cikti = derinDateTemizle(girdi);
   assert.strictEqual(cikti.faturaTarihi, '2026-06-15T00:00:00.000Z');
+});
+
+baslik('\nderinAnahtarKodla / derinAnahtarKodCoz (RTDB yasaklı anahtar karakteri regresyon testi)');
+test('"/" içeren anahtar (örn. Excel sütun adı "İptal / İtiraz Durumu") kodlanır', ()=>{
+  const girdi = {'İptal / İtiraz Durumu': 'Var'};
+  const kodlanmis = derinAnahtarKodla(girdi);
+  assert.ok(!Object.keys(kodlanmis)[0].includes('/'), 'kodlanmış anahtar "/" içermemeli');
+});
+test('kodlanmış anahtar, derinAnahtarKodCoz ile TAM olarak orijinaline geri döner', ()=>{
+  const girdi = {'İptal / İtiraz Durumu': 'Var', normal: 'değer'};
+  const kodlanmis = derinAnahtarKodla(girdi);
+  const cozulmus = derinAnahtarKodCoz(kodlanmis);
+  assert.strictEqual(JSON.stringify(cozulmus), JSON.stringify(girdi));
+});
+test('RTDB\'nin yasakladığı 6 karakterin (. # $ / [ ]) hepsi için round-trip doğru çalışır', ()=>{
+  const girdi = {'a.b#c$d/e[f]g': 1};
+  const kodlanmis = derinAnahtarKodla(girdi);
+  const kodlanmisAnahtar = Object.keys(kodlanmis)[0];
+  assert.ok(!/[.#$\/\[\]]/.test(kodlanmisAnahtar), 'kodlanmış anahtarda yasaklı karakter kalmamalı: ' + kodlanmisAnahtar);
+  const cozulmus = derinAnahtarKodCoz(kodlanmis);
+  assert.strictEqual(Object.keys(cozulmus)[0], 'a.b#c$d/e[f]g');
+});
+test('derin iç içe (nested) obje ve dizi içindeki anahtarlar da kodlanıp çözülür (rows[].sütun adı senaryosu)', ()=>{
+  const girdi = {
+    earsiv: { rows: [
+      {'İptal / İtiraz Durumu': 'Var', 'Fatura No': 'ES123'},
+      {'İptal / İtiraz Durumu': '', 'Fatura No': 'ES124'},
+    ]},
+  };
+  const kodlanmis = derinAnahtarKodla(girdi);
+  const anahtarlarTemizMi = Object.keys(kodlanmis.earsiv.rows[0]).every(k=> !k.includes('/'));
+  assert.ok(anahtarlarTemizMi, 'iç içe dizideki satırların anahtarları da kodlanmalı');
+  const cozulmus = derinAnahtarKodCoz(kodlanmis);
+  assert.strictEqual(JSON.stringify(cozulmus), JSON.stringify(girdi));
+});
+test('kodlama sadece ANAHTARLARI değiştirir, değerlere (string içeriğine) dokunmaz', ()=>{
+  const girdi = {normalAnahtar: 'Bu değer İptal / İtiraz Durumu gibi karakterler içerebilir'};
+  const kodlanmis = derinAnahtarKodla(girdi);
+  assert.strictEqual(kodlanmis.normalAnahtar, girdi.normalAnahtar); // değer aynı kalmalı
 });
 
 baslik('\nraporEksikAlanlariTamamla (string tarihi tekrar Date\'e çevirme regresyon testi)');
