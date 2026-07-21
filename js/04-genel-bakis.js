@@ -1217,7 +1217,7 @@ function faturaDetayModalAc(key){
       ${manuelTanim ? `
         <div class="manuel-aktif-uyari">
           <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-          Bu fatura manuel olarak "<strong>${escapeHtml(manuelTanim.label)}</strong>" işaretlendi ve genel bakışta <strong>Eşleşti</strong> olarak sayılıyor.
+          Bu fatura manuel olarak "<strong>${escapeHtml(manuelTanim.label)}</strong>" işaretlendi ve genel bakışta <strong>${manuelTanim.key==='iptal_edildi' ? 'Reddedildi/İptal' : 'Eşleşti'}</strong> olarak sayılıyor.
         </div>
       ` : ''}
 

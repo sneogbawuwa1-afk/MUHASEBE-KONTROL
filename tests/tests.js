@@ -41,6 +41,7 @@ const {
   donemGuncellemeAnaliziniYap, donemOnayiUygula, donemeAitSatirlariFiltrele,
   derinDateTemizle, derinAnahtarKodla, derinAnahtarKodCoz, subeAtamaBlokHtml,
   netsisHamVeriyiBirlestir, netsisOnayiUygula, netsisHamSatirAnahtarUret,
+  manuelDurumTanimBul,
 } = context;
 
 // NOT: `const state = {...}` gibi top-level bindingler Node'un vm.runInContext'inde
@@ -504,6 +505,54 @@ test('geçerli manuel işaret yetim olarak raporlanmaz', ()=>{
   manuel[anahtar1] = {durum:'eslesti', not:'', notGuncellemeZamani:null};
   const rapor = computeRapor(ortakKaynaklar, manuel);
   assert.strictEqual(rapor.yetimManuel.length, 0);
+});
+
+baslik('\n"iptal_edildi" manuel durumu (İptal Edildi butonu — faturayı Reddedildi/İptal statüsüne geçirir)');
+test('"iptal_edildi" manuel işaretlenince fatura "red" (Reddedildi/İptal) durumuna geçer', ()=>{
+  const manuel = {};
+  manuel[anahtar1] = {durum:'iptal_edildi', not:'', notGuncellemeZamani:null};
+  const rapor = computeRapor(ortakKaynaklar, manuel);
+  const f = rapor.faturalar.find(x=> x.faturaKey===anahtar1);
+  assert.strictEqual(f.durum, 'red');
+  assert.strictEqual(f.manuelDurum, 'iptal_edildi');
+  assert.strictEqual(f.orijinalDurum, 'islenmemis'); // gerçek durum korunuyor (orijinalDurum alanında)
+});
+test('"iptal_edildi" işaretlenince kpi.red artar, kpi.eslesti/islenmemis değişmez (o fatura artık ne eşleşti ne işlenmemiş sayılır)', ()=>{
+  const manuel = {};
+  manuel[anahtar1] = {durum:'iptal_edildi', not:'', notGuncellemeZamani:null};
+  const rapor = computeRapor(ortakKaynaklar, manuel);
+  assert.strictEqual(rapor.kpi.red, 1);
+  assert.strictEqual(rapor.kpi.eslesti, 0);
+  assert.strictEqual(rapor.kpi.islenmemis, 1); // sadece anahtar2 (işaretlenmeyen) hâlâ işlenmemiş
+});
+test('"iptal_edildi" ZATEN "red" durumundaki (redIptal=true) bir faturaya uygulanırsa da tutarlı kalır', ()=>{
+  const kaynaklarRedIptalli = {
+    efaturaQnb: { rows: [
+      {'GÖNDEREN VKN/TCKN':'3250032635','FATURA NO':'ES900','FATURA TARİHİ':'30.06.2026','TUTAR':'100,00','GÖNDEREN UNVAN/AD SOYAD':'TEST A.Ş.','DURUM':'İptal'},
+    ]},
+    musteriKesan: {rows: []}, musteriBayrampasa: {rows: []}, efesEkstre: null, netsis: null,
+  };
+  const anahtarRed = matchKey('3250032635', 'ES900');
+  const manuel = {};
+  manuel[anahtarRed] = {durum:'iptal_edildi', not:'Manuel teyit edildi', notGuncellemeZamani:null};
+  const rapor = computeRapor(kaynaklarRedIptalli, manuel);
+  const f = rapor.faturalar.find(x=> x.faturaKey===anahtarRed);
+  assert.strictEqual(f.durum, 'red');
+  assert.strictEqual(f.orijinalDurum, 'red'); // zaten red'di, manuel işaret üstüne binince orijinal de red kalıyor
+  assert.strictEqual(rapor.kpi.red, 1); // çift saymıyor, hâlâ 1
+});
+test('"iptal_edildi" not ile birlikte kaydedilirse not korunur', ()=>{
+  const manuel = {};
+  manuel[anahtar1] = {durum:'iptal_edildi', not:'Müşteri talebiyle iptal edildi', notGuncellemeZamani: new Date().toISOString()};
+  const rapor = computeRapor(ortakKaynaklar, manuel);
+  const f = rapor.faturalar.find(x=> x.faturaKey===anahtar1);
+  assert.strictEqual(f.not, 'Müşteri talebiyle iptal edildi');
+  assert.strictEqual(rapor.gruplar.notlu.length, 1); // notlu grubuna da düşer
+});
+test('manuelDurumTanimBul("iptal_edildi") doğru tanımı döner (buton render mantığı için)', ()=>{
+  const tanim = manuelDurumTanimBul('iptal_edildi');
+  assert.ok(tanim, 'iptal_edildi tanımı bulunmalı');
+  assert.strictEqual(tanim.label, 'İptal Edildi');
 });
 
 baslik('\nmanuel "eslesti" normalleşmesi (Netsis\'te sonradan bulunma)');

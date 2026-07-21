@@ -248,6 +248,7 @@ async function loadTutarToleransFromStorage(){
 const MANUEL_DURUM_TANIM = [
   {key:'eslesti', label:'Eşleşti', icon:'fa-solid fa-circle-check', cls:'badge-success'},
   {key:'iade_kesilecek', label:'İade Faturası Kesilecek', icon:'fa-solid fa-rotate-left', cls:'badge-purple'},
+  {key:'iptal_edildi', label:'İptal Edildi', icon:'fa-solid fa-ban', cls:'badge-danger'},
 ];
 
 function manuelDurumTanimBul(key){

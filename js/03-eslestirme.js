@@ -157,6 +157,24 @@ function computeRapor(kaynaklar, manuel, subeAtamalari, zincirVknListesi, fatura
         notGuncellemeZamani: manuelKayit.notGuncellemeZamani || null,
       };
     }
+
+    // "iptal_edildi": kullanıcı bu faturayı elle iptal/reddedildi olarak işaretledi —
+    // faturanın GERÇEK durumu ne olursa olsun (eşleşti, işlenmemiş, fark vb.) artık
+    // "red" (Reddedildi/İptal) sayılır ve KPI'da o kategoriye düşer. redIptal alanı
+    // Excel'den otomatik gelen iptal bilgisiyle aynı sonucu üretir ama burada kullanıcı
+    // kararı olduğu için ayrı bir manuel işaret olarak saklanır (orijinal durum korunur).
+    if(manuelDurumKey === 'iptal_edildi'){
+      return {
+        ...satir,
+        orijinalDurum: satir.durum,
+        orijinalDurumEtiket: satir.durumEtiket,
+        durum: 'red',
+        durumEtiket: 'Reddedildi/İptal (Manuel)',
+        manuelDurum: manuelDurumKey,
+        not: manuelKayit.not || '',
+        notGuncellemeZamani: manuelKayit.notGuncellemeZamani || null,
+      };
+    }
     return {
       ...satir,
       orijinalDurum: satir.durum,
