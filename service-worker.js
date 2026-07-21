@@ -2,7 +2,7 @@
 
 // Sürüm numarasını her önemli statik dosya değişikliğinde artır — eski önbellek
 // otomatik temizlenir (activate aşamasında).
-const CACHE_SURUMU = 'efatura-panel-v20';
+const CACHE_SURUMU = 'efatura-panel-v21';
 const ONBELLEK_DOSYALARI = [
   './',
   './index.html',

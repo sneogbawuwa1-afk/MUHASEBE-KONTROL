@@ -99,12 +99,17 @@ function computeRapor(kaynaklar, manuel, subeAtamalari, zincirVknListesi, fatura
     return adaylar.find(r=> faturaNoYakinMi(faturaNo, r.belgeNo)) || null;
   }
 
-  // VKN EŞLEŞMESİYLE CARİ KODU: fatura no bazında Netsis'te tam eşleşme bulunamasa
-  // (örn. "Netsis'te bulunamadı" durumu) bile, aynı VKN'ye ait BAŞKA bir Netsis
-  // kaydı varsa oradan cari kodunu alırız — cari kodu VKN'ye bağlı sabit bir bilgi
-  // olduğu için hangi faturadan geldiği önemli değildir. Aynı VKN altında birden
-  // fazla farklı cari kodu görülürse (nadir, ama olası) en sık geçen kullanılır.
-  function vknIleCariKoduBul(vkn){
+  // CARİ KODU BULMA ÖNCELİK SIRASI:
+  //   1) Keşan Müşteri Master ('Müşteri' sütunu)
+  //   2) Bayrampaşa Müşteri Master ('Merkez Kodu' sütunu)
+  //   3) Netsis kayıtları (VKN eşleşmesiyle en sık geçen kod) — SADECE Master'da
+  //      hiç bulunamazsa buraya düşülür.
+  // Master'a öncelik verilmesinin sebebi: Netsis'teki VKN-bazlı gruplama, VKN'si boş/
+  // eksik olan farklı müşterileri yanlışlıkla aynı grupta toplayıp birbirlerinin cari
+  // kodunu vermelerine yol açabiliyordu (özellikle çok kayıtlı Netsis dosyalarında,
+  // cihazdan cihaza farklı sıralama/gruplama nedeniyle TUTARSIZ sonuçlar verebiliyordu).
+  // Master dosyasındaki eşleşme VKN'ye göre net ve tekildir, bu riski taşımaz.
+  function vknIleCariKoduBulNetsisten(vkn){
     const adaylar = netsisByVkn.get(normVKN(vkn)) || [];
     if(!adaylar.length) return '';
     const sayac = new Map();
@@ -125,6 +130,22 @@ function computeRapor(kaynaklar, manuel, subeAtamalari, zincirVknListesi, fatura
   const bayrampasaVknSeti = kaynaklar.musteriBayrampasa ? parseMusteriMasterVknSeti(kaynaklar.musteriBayrampasa.rows) : new Set();
   const efesKesanMi = kaynaklar.efesEkstre ? efesEkstreKesanMi(kaynaklar.efesEkstre.rows) : null;
   const efesFaturaNoSeti = kaynaklar.efesEkstre ? efesEkstreFaturaNoSeti(kaynaklar.efesEkstre.rows) : new Set();
+
+  // MÜŞTERİ MASTER CARİ KODU HARİTALARI: Keşan ve Bayrampaşa Master dosyaları cari
+  // kodunu FARKLI sütunlarda taşıyor (bkz. js/02-veri-yukleme.js açıklaması). Cari
+  // kodu artık ÖNCELİKLE buradan okunuyor — Netsis'e (VKN eşleşmesiyle en sık geçen
+  // kod) sadece Master'da hiç bulunamazsa düşülüyor. Bu, VKN'si boş/eksik olan farklı
+  // müşterilerin Netsis tarafında yanlışlıkla aynı gruba düşüp BİRBİRLERİNİN cari
+  // kodunu almasını (bildirilen "cari kodu başka kişiye ait çıkıyor" sorunu) engeller.
+  const kesanCariKoduHaritasi = kaynaklar.musteriKesan ? parseMusteriMasterCariKoduHaritasi(kaynaklar.musteriKesan.rows, 'Müşteri') : new Map();
+  const bayrampasaCariKoduHaritasi = kaynaklar.musteriBayrampasa ? parseMusteriMasterCariKoduHaritasi(kaynaklar.musteriBayrampasa.rows, 'Merkez Kodu') : new Map();
+
+  function vknIleCariKoduBul(vkn){
+    const normalizeVkn = normVKN(vkn);
+    if(kesanCariKoduHaritasi.has(normalizeVkn)) return kesanCariKoduHaritasi.get(normalizeVkn);
+    if(bayrampasaCariKoduHaritasi.has(normalizeVkn)) return bayrampasaCariKoduHaritasi.get(normalizeVkn);
+    return vknIleCariKoduBulNetsisten(vkn);
+  }
 
   const subeTayiniYap = (vkn, faturaNo)=> belirleSube(vkn, faturaNo, efesKesanMi, efesFaturaNoSeti, kesanVknSeti, bayrampasaVknSeti, manuelSubeAtamalari, zincirVknSeti);
 

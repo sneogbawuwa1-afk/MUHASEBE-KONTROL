@@ -1260,6 +1260,16 @@ function faturaDetayModalAc(key){
         </button>
       </div>
 
+      ${f.yon === 'netsis' ? `
+      <div class="fd-akis-blok">
+        <div class="upload-section-label">Netsis kaydını sil</div>
+        <div class="sube-atama-not" style="margin-bottom:10px;">Bu kayıt Netsis dökümünden geliyor ve entegratörde eşleşmedi. Kaydı gerçekten Netsis'ten sildiyseniz (artık Netsis'te yoksa), burada da kalıcı olarak silebilirsiniz — geri alınamaz.</div>
+        <button type="button" class="manuel-durum-temizle tehlike" id="btnNetsisKaydiSil">
+          <i class="fa-solid fa-trash" aria-hidden="true"></i> Bu kaydı Netsis verisinden sil
+        </button>
+      </div>
+      ` : ''}
+
       <div class="fd-akis-blok">
         <div class="upload-section-label">Not ekle</div>
         <textarea id="faturaNotAlani" class="fatura-not-alani" placeholder="Örn: KEF2026 nolu fatura ile iade edildi">${escapeHtml(f.not||'')}</textarea>
@@ -1365,6 +1375,37 @@ function faturaDetayModalAc(key){
   if(zincirCikarBtn){
     zincirCikarBtn.addEventListener('click', ()=>{
       subeIslemiCalistirVeYenidenAc(()=> zincirVknCikar(f.vkn));
+    });
+  }
+
+  // Netsis kaydını kalıcı olarak silme: kullanıcı Netsis'te gerçekten sildiği ama
+  // panelde hâlâ "Entegratörde bulunamadı" olarak görünmeye devam eden bir kaydı
+  // temizlemek istediğinde kullanılır. Geri alınamaz — onay istenir. Silme işlemi
+  // state.kaynaklar.netsis.rows üzerinden yapılır (ham veri), rapor sonra yeniden
+  // hesaplanır. Sadece yon==='netsis' olan (yalnızca Netsis'te bulunan) satırlarda
+  // gösterilir çünkü entegratör satırlarının "silinmesi" mantıklı değildir — onlar
+  // zaten entegratörün kendi kaynağından geliyor.
+  const netsisSilBtn = overlay.querySelector('#btnNetsisKaydiSil');
+  if(netsisSilBtn){
+    netsisSilBtn.addEventListener('click', ()=>{
+      const onay = confirm(`"${f.faturaNo}" numaralı Netsis kaydını kalıcı olarak silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz.`);
+      if(!onay) return;
+      modalButonlariniKilitle();
+      (async ()=>{
+        try{
+          const eskiSatirlar = (state.kaynaklar.netsis && state.kaynaklar.netsis.rows) || [];
+          const guncelSatirlar = netsisOnayiUygula(eskiSatirlar, new Set([key]));
+          state.kaynaklar.netsis = { ...state.kaynaklar.netsis, rows: guncelSatirlar };
+          await saveKaynaklarToStorage();
+          await subeAtamasiSonrasiYenidenHesapla();
+          if(typeof toastGoster === 'function') toastGoster('Netsis kaydı silindi', 'basarili');
+        }catch(hata){
+          console.error('Netsis kaydı silinirken hata:', hata);
+          if(typeof toastGoster === 'function') toastGoster('Kayıt silinirken bir sorun oluştu', 'hata');
+        }finally{
+          overlay.remove(); // fatura artık yok, modalı tekrar açmaya çalışmıyoruz
+        }
+      })();
     });
   }
 

@@ -104,6 +104,45 @@ function parseMusteriMasterVknSeti(rows){
   return set;
 }
 
+// VKN(normalize) -> cari kodu eşleyen bir Map üretir. Keşan ve Bayrampaşa Müşteri
+// Master dosyaları cari kodunu FARKLI sütunlarda taşıyor:
+//   - Keşan Master     -> 'Müşteri' sütunu   (örn. "5000119479")
+//   - Bayrampaşa Master -> 'Merkez Kodu' sütunu (örn. "2021624")
+// Bu yüzden hangi sütunun okunacağı 'cariKoduSutunAdi' parametresiyle belirlenir.
+// Aynı VKN'ye ait birden fazla satır (farklı mağaza/şube) varsa, İLK görülen kod
+// kullanılır (Master dosyasındaki sıralama korunur — sonradan gelen tekrarlar yok sayılır).
+function parseMusteriMasterCariKoduHaritasi(rows, cariKoduSutunAdi){
+  const harita = new Map();
+  rows.forEach(r=>{
+    const vn = normVKN(r['Vergi No']);
+    const tc = normVKN(r['TC Kimlik No']);
+    const kod = String(r[cariKoduSutunAdi]==null ? '' : r[cariKoduSutunAdi]).trim();
+    if(!kod) return;
+    if(vn && !harita.has(vn)) harita.set(vn, kod);
+    if(tc && !harita.has(tc)) harita.set(tc, kod);
+  });
+  return harita;
+}
+
+// Müşteri Master dosyasından VKN(normalize) -> cari kodu haritası üretir. Hangi sütunun
+// cari kodu taşıdığı şubeye göre DEĞİŞİR — Keşan Master'da "Müşteri" sütunu (örn.
+// "5000119479"), Bayrampaşa Master'da "Merkez Kodu" sütunu (örn. "2021624") kullanılır.
+// cariKoduSutunAdi parametresiyle hangi sütunun okunacağı çağıran tarafından belirlenir.
+// Aynı VKN altında birden fazla satır varsa (örn. aynı müşterinin farklı şubeleri) İLK
+// dolu değeri kullanır — Master'daki satır sırası genelde tutarlıdır.
+function parseMusteriMasterCariKoduHaritasi(rows, cariKoduSutunAdi){
+  const harita = new Map();
+  rows.forEach(r=>{
+    const vn = normVKN(r['Vergi No']);
+    const tc = normVKN(r['TC Kimlik No']);
+    const kod = String(r[cariKoduSutunAdi]==null ? '' : r[cariKoduSutunAdi]).trim();
+    if(!kod) return;
+    if(vn && !harita.has(vn)) harita.set(vn, kod);
+    if(tc && !harita.has(tc)) harita.set(tc, kod);
+  });
+  return harita;
+}
+
 const EFES_KESAN_ANAHTAR = '11859';
 function efesEkstreKesanMi(rows){
   return rows.some(r=>{

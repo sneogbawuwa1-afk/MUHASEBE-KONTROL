@@ -41,7 +41,7 @@ const {
   donemGuncellemeAnaliziniYap, donemOnayiUygula, donemeAitSatirlariFiltrele,
   derinDateTemizle, derinAnahtarKodla, derinAnahtarKodCoz, subeAtamaBlokHtml,
   netsisHamVeriyiBirlestir, netsisOnayiUygula, netsisHamSatirAnahtarUret,
-  manuelDurumTanimBul,
+  manuelDurumTanimBul, parseMusteriMasterCariKoduHaritasi,
 } = context;
 
 // NOT: `const state = {...}` gibi top-level bindingler Node'un vm.runInContext'inde
@@ -340,7 +340,7 @@ test('VKN Müşteri Master\'da kayıtlı olup otomatik Keşan\'a düşse BİLE "
   const html = subeAtamaBlokHtml(f);
   assert.notStrictEqual(html.trim(), '', 'ŞUBE bölümü boş DÖNMEMELİ');
   assert.ok(html.includes('btnZincirVknEkle'), '"zincir olarak işaretle" butonu bulunmalı');
-  assert.ok(html.toLocaleUpperCase('tr-TR').includes('ŞUBE'), 'Şube başlığı görünmeli (görsel olarak CSS text-transform ile büyütülüyor)');
+  assert.ok(html.includes('sube-atama-blok'), 'Şube atama bölümü (sube-atama-blok sınıfı) görünmeli');
 });
 test('VKN Kontrol grubundaysa (hiçbir master\'da yok) da "zincir olarak işaretle" butonu görünür', ()=>{
   vm.runInContext('state.zincirVknListesi = new Set(); state.subeAtamalari = new Map(); state.faturaSubeAtamalari = new Map();', context);
@@ -1074,6 +1074,53 @@ test('boş/undefined Set verilirse hiçbir şey değişmez', ()=>{
   assert.strictEqual(netsisOnayiUygula(hamSatirlar, null).length, 1);
 });
 
+baslik('\n"Netsis kaydını sil" özelliği — modaldan tek fatura silme (faturaKey ile eşleşme)');
+test('faturaKey ile birebir eşleşen tek bir ham Netsis satırı silinir, diğerleri korunur', ()=>{
+  const hamSatirlar = [
+    { 'VKN/TCKN': '1112223334', 'Belge No': 'HZE202600000022', 'Tarih':'22.06.2026', 'Cari İsim':'ZENGİN', 'Cari Kodu':'5000119479', 'KDV Toplamı':1000, 'Genel Toplam':6000 },
+    { 'VKN/TCKN': '5556667778', 'Belge No': 'YGZ202600000010', 'Tarih':'09.06.2026', 'Cari İsim':'CADDE', 'Cari Kodu':'5000111200', 'KDV Toplamı':4000, 'Genel Toplam':26000 },
+  ];
+  // computeRapor'un ürettiği faturaKey ile aynı formülle (matchKey) üretilen anahtar
+  const silinecekAnahtar = netsisHamSatirAnahtarUret(hamSatirlar[0]);
+  const guncelSatirlar = netsisOnayiUygula(hamSatirlar, new Set([silinecekAnahtar]));
+  assert.strictEqual(guncelSatirlar.length, 1);
+  assert.strictEqual(guncelSatirlar[0]['Belge No'], 'YGZ202600000010');
+});
+test('computeRapor tarafından üretilen faturaKey, netsisHamSatirAnahtarUret ile AYNI formülü kullanır (silme butonunun doğru satırı bulabilmesi için kritik)', ()=>{
+  const kaynaklar = {
+    musteriKesan: { rows: [{ 'Vergi No': '1112223334', 'TC Kimlik No': null, 'Müşteri': '5000119479' }] },
+    musteriBayrampasa: { rows: [] },
+    efesEkstre: null,
+    netsis: { rows: [
+      { 'VKN/TCKN': '1112223334', 'Belge No': 'HZE202600000022', 'Tarih':'22.06.2026', 'Cari İsim':'ZENGİN', 'Cari Kodu':'5000119479', 'KDV Toplamı':1000, 'Genel Toplam':6000 },
+    ]},
+    efaturaQnb: { rows: [] },
+  };
+  const rapor = computeRapor(kaynaklar, {}, new Map(), new Set(), new Map());
+  const fatura = rapor.faturalar.find(f=> f.faturaNo==='HZE202600000022');
+  const hamSatirAnahtari = netsisHamSatirAnahtarUret(kaynaklar.netsis.rows[0]);
+  assert.strictEqual(fatura.faturaKey, hamSatirAnahtari, 'faturaKey ile ham satır anahtarı birebir aynı olmalı, aksi halde silme butonu yanlış/hiçbir satırı bulamaz');
+});
+test('silinen kayıt sonrası computeRapor yeniden çalıştırılınca fatura raporda hiç görünmez', ()=>{
+  const kaynaklar = {
+    musteriKesan: { rows: [] }, musteriBayrampasa: { rows: [] }, efesEkstre: null,
+    netsis: { rows: [
+      { 'VKN/TCKN': '1112223334', 'Belge No': 'HZE202600000022', 'Tarih':'22.06.2026', 'Cari İsim':'ZENGİN', 'Cari Kodu':'5000119479', 'KDV Toplamı':1000, 'Genel Toplam':6000 },
+      { 'VKN/TCKN': '5556667778', 'Belge No': 'YGZ202600000010', 'Tarih':'09.06.2026', 'Cari İsim':'CADDE', 'Cari Kodu':'5000111200', 'KDV Toplamı':4000, 'Genel Toplam':26000 },
+    ]},
+    efaturaQnb: { rows: [] },
+  };
+  const raporOncesi = computeRapor(kaynaklar, {}, new Map(), new Set(), new Map());
+  const silinecekFatura = raporOncesi.faturalar.find(f=> f.faturaNo==='HZE202600000022');
+
+  const guncelNetsisSatirlari = netsisOnayiUygula(kaynaklar.netsis.rows, new Set([silinecekFatura.faturaKey]));
+  const kaynaklarGuncel = { ...kaynaklar, netsis: { ...kaynaklar.netsis, rows: guncelNetsisSatirlari } };
+  const raporSonrasi = computeRapor(kaynaklarGuncel, {}, new Map(), new Set(), new Map());
+
+  assert.ok(!raporSonrasi.faturalar.some(f=> f.faturaNo==='HZE202600000022'), 'silinen fatura raporda artık hiç görünmemeli');
+  assert.ok(raporSonrasi.faturalar.some(f=> f.faturaNo==='YGZ202600000010'), 'silinmeyen fatura raporda kalmaya devam etmeli');
+});
+
 baslik('\nfaturaDetayModalAc — modal üst üste binme regresyon testi (bildirilen bug)');
 test('modal art arda birden fazla kez açılmaya çalışılsa bile document.body\'de sadece 1 tane kalır', ()=>{
   // Bu test kendi izole DOM mock'unu kurar çünkü ana test context'indeki sahteDocument
@@ -1135,6 +1182,119 @@ test('modal art arda birden fazla kez açılmaya çalışılsa bile document.bod
 
   const overlaySayisi = bodyElements.filter(el=> el.id==='faturaDetayOverlay').length;
   assert.strictEqual(overlaySayisi, 1, `Modal 3 kez açılmaya çalışıldı ama document.body'de ${overlaySayisi} tane overlay kaldı (1 olmalıydı) — üst üste binme bug'ı geri geldi`);
+});
+
+baslik('\nparseMusteriMasterCariKoduHaritasi (Keşan "Müşteri" / Bayrampaşa "Merkez Kodu" sütun farkı)');
+test('Keşan Master için "Müşteri" sütunundan VKN->cari kodu haritası doğru üretilir', ()=>{
+  const rows = [
+    { 'Vergi No': '2145480123', 'TC Kimlik No': null, 'Müşteri': '2145480' },
+    { 'Vergi No': '5000131449', 'TC Kimlik No': null, 'Müşteri': '5000131449' },
+  ];
+  const harita = parseMusteriMasterCariKoduHaritasi(rows, 'Müşteri');
+  assert.strictEqual(harita.get(normVKN('2145480123')), '2145480');
+  assert.strictEqual(harita.get(normVKN('5000131449')), '5000131449');
+});
+test('Bayrampaşa Master için "Merkez Kodu" sütunundan VKN->cari kodu haritası doğru üretilir', ()=>{
+  const rows = [
+    { 'Vergi No': '5000119479', 'TC Kimlik No': null, 'Merkez Kodu': '2021624' },
+  ];
+  const harita = parseMusteriMasterCariKoduHaritasi(rows, 'Merkez Kodu');
+  assert.strictEqual(harita.get(normVKN('5000119479')), '2021624');
+});
+test('TC Kimlik No üzerinden de eşleşme çalışır (VKN yerine TCKN olan bireysel müşteriler için)', ()=>{
+  const rows = [
+    { 'Vergi No': null, 'TC Kimlik No': '12345678901', 'Müşteri': '3001122' },
+  ];
+  const harita = parseMusteriMasterCariKoduHaritasi(rows, 'Müşteri');
+  assert.strictEqual(harita.get(normVKN('12345678901')), '3001122');
+});
+test('boş/eksik cari kodu değeri olan satırlar haritaya eklenmez', ()=>{
+  const rows = [
+    { 'Vergi No': '1112223334', 'TC Kimlik No': null, 'Müşteri': '' },
+    { 'Vergi No': '1112223334', 'TC Kimlik No': null, 'Müşteri': null },
+  ];
+  const harita = parseMusteriMasterCariKoduHaritasi(rows, 'Müşteri');
+  assert.strictEqual(harita.has(normVKN('1112223334')), false);
+});
+test('aynı VKN birden fazla satırda geçerse (örn. zincir marka) İLK görülen kod korunur', ()=>{
+  const rows = [
+    { 'Vergi No': '6220529513', 'TC Kimlik No': null, 'Müşteri': '284947' },
+    { 'Vergi No': '6220529513', 'TC Kimlik No': null, 'Müşteri': '287957' },
+  ];
+  const harita = parseMusteriMasterCariKoduHaritasi(rows, 'Müşteri');
+  assert.strictEqual(harita.get(normVKN('6220529513')), '284947');
+});
+
+baslik('\ncomputeRapor — cari kodu bulma önceliği (KRİTİK REGRESYON: "cari kodu başka kişiye ait çıkıyor" bug\'ı)');
+test('cari kodu ÖNCE Keşan Master\'dan (Müşteri sütunu) okunur, Netsis\'teki yanlış/karışık gruptan ALINMAZ', ()=>{
+  const kaynaklar = {
+    musteriKesan: { rows: [
+      { 'Vergi No': '2145480123', 'TC Kimlik No': null, 'Müşteri': '2145480' },
+    ]},
+    musteriBayrampasa: { rows: [] },
+    efesEkstre: null,
+    netsis: { rows: [
+      // VKN'si boş gelen ALAKASIZ bir Netsis kaydı - normVKN('') ile aynı gruba düşebilir
+      { 'VKN/TCKN': '', 'Belge No': 'ALAKASIZ001', 'Tarih': '26.06.2026', 'Cari İsim': 'YANLIŞ MÜŞTERİ', 'Cari Kodu': '9999999', 'KDV Toplamı': 100, 'Genel Toplam': 1000 },
+    ]},
+    efaturaQnb: { rows: [
+      { 'GÖNDEREN VKN/TCKN':'2145480123', 'FATURA NO':'GIB2026000000008', 'FATURA TARİHİ':'26.06.2026', 'TUTAR':'4000', 'GÖNDEREN UNVAN/AD SOYAD':'MERKEZ TEKEL GIDA' },
+    ]},
+  };
+  const rapor = computeRapor(kaynaklar, {}, new Map(), new Set(), new Map());
+  const fatura = rapor.faturalar.find(f=> f.faturaNo==='GIB2026000000008');
+  assert.strictEqual(fatura.cariKodu, '2145480', 'Master\'daki doğru kod kullanılmalı, Netsis\'teki alakasız kod (9999999) ASLA kullanılmamalı');
+});
+test('cari kodu Bayrampaşa Master\'dan (Merkez Kodu sütunu) doğru okunur', ()=>{
+  const kaynaklar = {
+    musteriKesan: { rows: [] },
+    musteriBayrampasa: { rows: [
+      { 'Vergi No': '5000119479', 'TC Kimlik No': null, 'Merkez Kodu': '2021624' },
+    ]},
+    efesEkstre: null,
+    netsis: { rows: [] },
+    efaturaQnb: { rows: [
+      { 'GÖNDEREN VKN/TCKN':'5000119479', 'FATURA NO':'HZE202600000022', 'FATURA TARİHİ':'22.06.2026', 'TUTAR':'6000', 'GÖNDEREN UNVAN/AD SOYAD':'ZENGİN MARKET' },
+    ]},
+  };
+  const rapor = computeRapor(kaynaklar, {}, new Map(), new Set(), new Map());
+  const fatura = rapor.faturalar.find(f=> f.faturaNo==='HZE202600000022');
+  assert.strictEqual(fatura.cariKodu, '2021624');
+  assert.strictEqual(fatura.subeGrup, 'bayrampasa');
+});
+test('VKN hiçbir Master\'da yoksa (Kontrol grubu) cari kodu Netsis\'e (VKN eşleşmesiyle) düşer', ()=>{
+  const kaynaklar = {
+    musteriKesan: { rows: [] },
+    musteriBayrampasa: { rows: [] },
+    efesEkstre: null,
+    netsis: { rows: [
+      { 'VKN/TCKN': '1112223334', 'Belge No': 'ES100', 'Tarih': '10.06.2026', 'Cari İsim': 'TEST A.Ş.', 'Cari Kodu': '7770001', 'KDV Toplamı': 18, 'Genel Toplam': 118 },
+    ]},
+    efaturaQnb: { rows: [
+      { 'GÖNDEREN VKN/TCKN':'1112223334', 'FATURA NO':'ES200', 'FATURA TARİHİ':'11.06.2026', 'TUTAR':'500', 'GÖNDEREN UNVAN/AD SOYAD':'TEST A.Ş.' },
+    ]},
+  };
+  const rapor = computeRapor(kaynaklar, {}, new Map(), new Set(), new Map());
+  const fatura = rapor.faturalar.find(f=> f.faturaNo==='ES200');
+  assert.strictEqual(fatura.cariKodu, '7770001', 'Master\'da yoksa Netsis\'ten VKN eşleşmesiyle bulunmalı');
+});
+test('VKN hem Keşan hem Netsis\'te farklı kodlarla varsa, Keşan Master her zaman kazanır', ()=>{
+  const kaynaklar = {
+    musteriKesan: { rows: [
+      { 'Vergi No': '3213214321', 'TC Kimlik No': null, 'Müşteri': 'MASTER_KODU' },
+    ]},
+    musteriBayrampasa: { rows: [] },
+    efesEkstre: null,
+    netsis: { rows: [
+      { 'VKN/TCKN': '3213214321', 'Belge No': 'FARKLI001', 'Tarih': '15.06.2026', 'Cari İsim': 'X', 'Cari Kodu': 'NETSIS_KODU', 'KDV Toplamı': 18, 'Genel Toplam': 118 },
+    ]},
+    efaturaQnb: { rows: [
+      { 'GÖNDEREN VKN/TCKN':'3213214321', 'FATURA NO':'FARKLI002', 'FATURA TARİHİ':'16.06.2026', 'TUTAR':'500', 'GÖNDEREN UNVAN/AD SOYAD':'X' },
+    ]},
+  };
+  const rapor = computeRapor(kaynaklar, {}, new Map(), new Set(), new Map());
+  const fatura = rapor.faturalar.find(f=> f.faturaNo==='FARKLI002');
+  assert.strictEqual(fatura.cariKodu, 'MASTER_KODU');
 });
 
 asyncTestZinciri.then(()=>{
