@@ -163,7 +163,7 @@ const RAPOR_STORAGE_KEY = 'efaturaPanelSonRapor_v1';
 
 async function saveRaporToStorage(){
   try{
-    await syncYaz(RAPOR_STORAGE_KEY, {
+    await idbSet(RAPOR_STORAGE_KEY, {
       rapor: state.rapor,
       kayitZamani: new Date().toISOString(),
       dosyaAdlari: Object.fromEntries(
@@ -171,13 +171,14 @@ async function saveRaporToStorage(){
       ),
     });
   }catch(e){
-    console.warn('Rapor kaydedilemedi:', e);
+    console.warn('Rapor kaydedilemedi (IndexedDB):', e);
   }
 }
 
 async function loadRaporFromStorage(){
   try{
-    const parsed = await syncOku(RAPOR_STORAGE_KEY, null);
+    const parsed = await idbGet(RAPOR_STORAGE_KEY);
+
     return parsed || null;
   }catch(e){
     console.warn('Kayıtlı rapor okunamadı:', e);
@@ -187,57 +188,22 @@ async function loadRaporFromStorage(){
 
 async function raporuOlustur(){
   try{
-    state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+    state.rapor = computeRapor(state.kaynaklar, state.manuel);
   }catch(err){
     console.error('Rapor oluşturulurken hata:', err);
     alert('Rapor oluşturulamadı: ' + err.message + '\n\nLütfen yüklenen dosyaların doğru formatta olduğundan emin olun.');
     return;
   }
-
-  // Manuel "eslesti" işareti normalleşmesi: fatura o an Netsis'te bulunamadığı için elle
-  // "Eşleşti" işaretlenmişti, ama yeni yüklenen Netsis verisinde ARTIK GERÇEKTEN bulunuyorsa
-  // manuel etiketi taşımanın anlamı kalmaz — kalıcı olarak (state.manuel) normalleştirilir.
-  // Not varsa KORUNUR, sadece durum alanı temizlenir (iade_kesilecek buna dahil değildir).
-  const normallesenSayisi = (state.rapor.normallesenManuelIsaretler||[]).length;
-  if(normallesenSayisi > 0){
-    for(const faturaKey of state.rapor.normallesenManuelIsaretler){
-      await manuelKaydiGuncelle(faturaKey, {durum: null});
-    }
-    // Manuel kayıtlar değiştiği için raporu bu güncel state.manuel ile yeniden hesapla —
-    // aksi halde ekranda hâlâ "(Manuel)" etiketi görünmeye devam eder.
-    state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
-  }
-
   await saveRaporToStorage();
-  state.goruntulenenDonemId = null; // yeni rapor her zaman "canlı" (arşiv değil) görünümdür
-
-  // Ay sonu arşivi: aktif dönem (ve bir sonraki ay) onaysız/otomatik arşive yazılır.
-  // Bundan daha uzak (geçmiş veya 2+ ay ileri) dönemlere ait Netsis değişiklikleri
-  // varsa kullanıcıdan onay istenir — bkz. donemGuncellemeAnaliziniYap.
-  const analiz = donemGuncellemeAnaliziniYap(state.rapor);
-  await donemleriTopluArsivle(state.rapor, analiz.otomatikYazilacakDonemler);
-  // Aktif dönem otomatik listede yoksa bile (örn. Netsis kaynağı hiç yoksa) her zaman
-  // yine de arşivlenir — entegratör verisi tek başına da arşivlenebilir olmalı.
-  await donemiArsivle(state.rapor);
-
   const topbarSub = document.getElementById('topbarSub');
   const simdi = new Date().toLocaleString('tr-TR');
   const uyari = tarihUyusmazlikUyarisiVarMi();
-  const normallesenNotu = normallesenSayisi > 0 ? ` · ${normallesenSayisi} manuel işaret otomatik normalleşti` : '';
   topbarSub.textContent = uyari
     ? `⚠ ${uyari}`
-    : `Son güncelleme: ${simdi} · ${state.rapor.faturalar.length} kayıt${normallesenNotu}`;
+    : `Son güncelleme: ${simdi} · ${state.rapor.faturalar.length} kayıt`;
   renderKPIs();
   renderGroupTabs();
   renderGroupSections();
-  renderDonemPaneli();
-
-  // Geçmiş/uzak dönemlere ait değişiklikler varsa onay modalını göster — bu modal
-  // kullanıcı "Tümünü Göz Ardı Et ve Uygula"ya basana kadar açık kalır.
-  if(analiz.onayBekleyenDonemler.length){
-    donemOnayModaliAc(analiz.onayBekleyenDonemler);
-  }
-
   if(window.innerWidth <= 960) sidebarKapat(); // yalnızca mobilde rapor oluşturunca paneli kapat
 }
 
@@ -298,14 +264,6 @@ function raporEksikAlanlariTamamla(rapor){
     if(!f.faturaKey) f.faturaKey = matchKey(f.vkn, f.faturaNo);
     if(f.manuelDurum === undefined) f.manuelDurum = null;
     if(f.not === undefined) f.not = '';
-    // faturaTarihi, Firebase/IndexedDB'den ISO STRING olarak dönebilir (Date nesneleri
-    // JSON-güvenli depolama için stringe çevriliyor, bkz. js/09-firebase.js derinDateTemizle).
-    // Burada tekrar gerçek bir Date nesnesine çeviriyoruz ki tarih sütunu, sıralama ve
-    // dönem filtreleme mantığı (hepsi new Date(...) kullanıyor) tutarlı çalışsın.
-    if(f.faturaTarihi && typeof f.faturaTarihi==='string'){
-      const d = new Date(f.faturaTarihi);
-      if(!isNaN(d)) f.faturaTarihi = d;
-    }
   });
   return rapor;
 }
@@ -358,34 +316,6 @@ function raporIceAktar(file){
   reader.readAsText(file);
 }
 
-// Tüm kalıcı veriyi (kaynaklar, manuel işaretler, dönem arşivi, şube atamaları,
-// tolerans, rapor) senkron katmanı üzerinden yeniden okuyup ekranı günceller.
-// initApp'te bir kere, erişim anahtarı ilk kez doğru girildiğinde bir kere daha
-// (09-firebase.js) çağrılır — böylece anahtar girilir girilmez Firestore'daki
-// güncel veriler hemen ekrana yansır.
-async function tumVeriyiYenidenYukleVeCiz(){
-  await loadKaynaklarFromStorage();
-  await loadManuelFromStorage();
-  await donemleriYukle();
-  await subeAtamalariniYukle();
-  const kayitliTolerans = await loadTutarToleransFromStorage();
-  if(kayitliTolerans != null) tutarToleransiAyarla(kayitliTolerans);
-  renderUploadPanels();
-  guncelleRaporOlusturButonu();
-
-  const kayitliRapor = await loadRaporFromStorage();
-  const topbarSub = document.getElementById('topbarSub');
-  if(kayitliRapor && kayitliRapor.rapor){
-    state.rapor = raporEksikAlanlariTamamla(kayitliRapor.rapor);
-    const zaman = new Date(kayitliRapor.kayitZamani).toLocaleString('tr-TR');
-    topbarSub.textContent = `Kayıtlı rapor · Son oluşturma: ${zaman} · ${state.rapor.faturalar.length} kayıt`;
-  }
-  renderKPIs();
-  renderGroupTabs();
-  renderGroupSections();
-  renderDonemPaneli();
-}
-
 async function initApp(){
   fnoKopyalaDelegationBagla();
 
@@ -405,17 +335,23 @@ async function initApp(){
     }
   }
 
-  // Firebase/erişim anahtarı kontrolü SESSİZCE dener — Firestore henüz yoksa veya
-  // anahtar zaten localStorage'da kayıtlıysa hiçbir şey görünmez; sadece anahtar
-  // hiç girilmemişse (ilk açılış) bir kere sorulur.
-  if(typeof erisimKontroluBaslat === 'function') await erisimKontroluBaslat();
+  await loadKaynaklarFromStorage();
+  await loadManuelFromStorage();
+  const kayitliTolerans = await loadTutarToleransFromStorage();
+  if(kayitliTolerans != null) tutarToleransiAyarla(kayitliTolerans);
+  renderUploadPanels();
+  guncelleRaporOlusturButonu();
 
-  await tumVeriyiYenidenYukleVeCiz();
-
-  // Gerçek zamanlı çoklu cihaz senkronu: başka bir cihaz veri değiştirdiğinde bu
-  // sekmeyi otomatik günceller (sayfa yenilemeye gerek kalmaz). Firebase yoksa veya
-  // erişim anahtarı hiç girilmediyse sessizce hiçbir şey yapmaz.
-  if(typeof canliDinlemeBaslat === 'function') await canliDinlemeBaslat();
+  const kayitliRapor = await loadRaporFromStorage();
+  const topbarSub = document.getElementById('topbarSub');
+  if(kayitliRapor && kayitliRapor.rapor){
+    state.rapor = raporEksikAlanlariTamamla(kayitliRapor.rapor);
+    const zaman = new Date(kayitliRapor.kayitZamani).toLocaleString('tr-TR');
+    topbarSub.textContent = `Kayıtlı rapor · Son oluşturma: ${zaman} · ${state.rapor.faturalar.length} kayıt`;
+  }
+  renderKPIs();
+  renderGroupTabs();
+  renderGroupSections();
 
   // Sidebar aç/kapat: masaüstünde ray üzerindeki logo/ok tıklanınca genişler/daralır
   // (rayın kendisi kaybolmaz); mobil hamburger tam paneli açar, X veya overlay kapatır.
@@ -448,7 +384,7 @@ async function initApp(){
     toleransInput.value = TUTAR_TOLERANS;
     await saveTutarToleransToStorage(TUTAR_TOLERANS);
     if(state.rapor){
-      state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+      state.rapor = computeRapor(state.kaynaklar, state.manuel);
       await saveRaporToStorage();
       renderKPIs();
       renderGroupTabs();
