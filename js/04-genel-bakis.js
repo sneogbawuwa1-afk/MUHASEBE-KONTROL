@@ -1031,8 +1031,8 @@ function farkDetayHtml(f){
   const d = f.farkDetay;
   if(!d) return '';
   return `
-    <div class="upload-section-label">TUTAR ${d.tutarFarkVar?'<span style="color:#FFB65C;">— FARK VAR</span>':'<span style="color:#8FE0AE;">— eşleşiyor</span>'}</div>
-    <div class="upload-row" style="margin-bottom:10px;">
+    <div class="upload-section-label">Tutar ${d.tutarFarkVar?'<span style="color:#FFB65C;">— fark var</span>':'<span style="color:#8FE0AE;">— eşleşiyor</span>'}</div>
+    <div class="upload-row">
       <div>
         <div class="upload-row-name">Entegratör</div>
         <div class="upload-row-status ok" style="color:#fff;font-size:13px;">${fmtTL(d.entegratorTutar)}</div>
@@ -1042,12 +1042,12 @@ function farkDetayHtml(f){
         <div class="upload-row-status ok" style="color:#fff;font-size:13px;">${fmtTL(d.netsisTutar)}</div>
       </div>
     </div>
-    <div style="text-align:right; font-size:12px; color:${d.tutarFarkVar?'#FFB65C':'rgba(255,255,255,.45)'}; margin-bottom:16px;">
+    <div style="text-align:right; font-size:12px; color:${d.tutarFarkVar?'#FFB65C':'rgba(255,255,255,.45)'}; margin-top:6px;">
       Fark: ${fmtTL(d.tutarFarkTutari)}
     </div>
     ${d.kdvKontrolVarMi ? `
-      <div class="upload-section-label">KDV ${d.kdvFarkVar?'<span style="color:#FFB65C;">— FARK VAR</span>':'<span style="color:#8FE0AE;">— eşleşiyor</span>'}</div>
-      <div class="upload-row" style="margin-bottom:10px;">
+      <div class="upload-section-label" style="margin-top:14px;">KDV ${d.kdvFarkVar?'<span style="color:#FFB65C;">— fark var</span>':'<span style="color:#8FE0AE;">— eşleşiyor</span>'}</div>
+      <div class="upload-row">
         <div>
           <div class="upload-row-name">Entegratör</div>
           <div class="upload-row-status ok" style="color:#fff;font-size:13px;">${fmtTL(d.entegratorKdv)}</div>
@@ -1057,11 +1057,11 @@ function farkDetayHtml(f){
           <div class="upload-row-status ok" style="color:#fff;font-size:13px;">${fmtTL(d.netsisKdv)}</div>
         </div>
       </div>
-      <div style="text-align:right; font-size:12px; color:${d.kdvFarkVar?'#FFB65C':'rgba(255,255,255,.45)'};">
+      <div style="text-align:right; font-size:12px; color:${d.kdvFarkVar?'#FFB65C':'rgba(255,255,255,.45)'}; margin-top:6px;">
         Fark: ${fmtTL(d.kdvFarkTutari)}
       </div>
     ` : `
-      <div class="upload-note" style="margin-top:0;">Bu kaynakta (QNB) KDV bilgisi yer almadığı için KDV karşılaştırması yapılmıyor — sadece toplam tutar kontrol edilir.</div>
+      <div class="upload-note" style="margin-top:14px;">Bu kaynakta (QNB) KDV bilgisi yer almadığı için KDV karşılaştırması yapılmıyor — sadece toplam tutar kontrol edilir.</div>
     `}
   `;
 }
@@ -1099,8 +1099,8 @@ function subeAtamaBlokHtml(f){
       : `<span class="badge badge-warn"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> VKN/TCKN okunamadı — sadece bu fatura için atama yapılabilir</span>`;
     return `
       <div class="sube-atama-blok">
-        <div class="upload-section-label">ŞUBE</div>
-        <div style="margin:6px 0 10px;">${durumEtiketi}</div>
+        <div class="upload-section-label">Şube</div>
+        <div class="sube-durum-etiket">${durumEtiketi}</div>
         <div class="sube-atama-grid">
           <button type="button" class="sube-atama-btn fatura-sube-atama-btn ${faturaAtanmisMi==='kesan'?'active':''}" data-sube="kesan">
             <i class="fa-solid fa-building" aria-hidden="true"></i> Keşan'a ata
@@ -1124,8 +1124,8 @@ function subeAtamaBlokHtml(f){
 
     return `
       <div class="sube-atama-blok">
-        <div class="upload-section-label">ŞUBE</div>
-        <div style="margin:6px 0 10px;">${durumEtiketi}</div>
+        <div class="upload-section-label">Şube</div>
+        <div class="sube-durum-etiket">${durumEtiketi}</div>
         <div class="sube-atama-grid">
           <button type="button" class="sube-atama-btn fatura-sube-atama-btn ${faturaAtanmisMi==='kesan'?'active':''}" data-sube="kesan">
             <i class="fa-solid fa-building" aria-hidden="true"></i> Keşan'a ata
@@ -1136,7 +1136,7 @@ function subeAtamaBlokHtml(f){
         </div>
         ${faturaAtanmisMi ? `<button type="button" class="manuel-durum-temizle" id="btnFaturaSubeAtamaTemizle"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Bu faturanın atamasını kaldır</button>` : ''}
         <div class="sube-atama-not">Bu VKN "zincir" olarak işaretli (aynı VKN'yi birden fazla şubede/bölgede kullanan marka) — atama SADECE bu faturaya özeldir, aynı VKN'nin başka faturalarını etkilemez.</div>
-        <button type="button" class="manuel-durum-temizle" id="btnZincirVknCikar" style="margin-top:6px;"><i class="fa-solid fa-unlink" aria-hidden="true"></i> Bu VKN'yi zincir listesinden çıkar</button>
+        <button type="button" class="sube-atama-link" id="btnZincirVknCikar"><i class="fa-solid fa-unlink" aria-hidden="true"></i> Bu VKN'yi zincir listesinden çıkar</button>
       </div>
     `;
   }
@@ -1155,8 +1155,8 @@ function subeAtamaBlokHtml(f){
 
   return `
     <div class="sube-atama-blok">
-      <div class="upload-section-label">ŞUBE</div>
-      <div style="margin:6px 0 10px;">${durumEtiketi}</div>
+      <div class="upload-section-label">Şube</div>
+      <div class="sube-durum-etiket">${durumEtiketi}</div>
       <div class="sube-atama-grid">
         <button type="button" class="sube-atama-btn ${manuelAtanmisMi==='kesan'?'active':''}" data-sube="kesan">
           <i class="fa-solid fa-building" aria-hidden="true"></i> Keşan'a ata
@@ -1167,7 +1167,7 @@ function subeAtamaBlokHtml(f){
       </div>
       ${manuelAtanmisMi ? `<button type="button" class="manuel-durum-temizle" id="btnSubeAtamaTemizle"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Şube atamasını kaldır</button>` : ''}
       <div class="sube-atama-not">Bu VKN'ye ait tüm faturalar (geçmiş ve gelecek dönemler dahil) otomatik olarak seçilen şubeye düşer.</div>
-      <button type="button" class="manuel-durum-temizle" id="btnZincirVknEkle" style="margin-top:6px;"><i class="fa-solid fa-link" aria-hidden="true"></i> Bu VKN'yi "zincir" olarak işaretle (VKN paylaşımlı marka)</button>
+      <button type="button" class="sube-atama-link" id="btnZincirVknEkle"><i class="fa-solid fa-link" aria-hidden="true"></i> Bu VKN'yi "zincir" olarak işaretle (VKN paylaşımlı marka)</button>
     </div>
   `;
 }
@@ -1212,30 +1212,29 @@ function faturaDetayModalAc(key){
         <div class="upload-modal-title">Fatura Detayı</div>
         <button type="button" class="upload-close" id="btnCloseFaturaDetay" aria-label="Kapat"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
       </div>
-      <div style="color:rgba(255,255,255,.65); font-size:12px; margin-bottom:14px;">
-        <span class="fno" style="color:#8FB4FF;">${escapeHtml(f.faturaNo)}</span> · ${escapeHtml(f.gonderenUnvan)}
-        <div style="margin-top:6px; font-size:11px; color:rgba(255,255,255,.4);">
-          VKN/TCKN: <span style="color:rgba(255,255,255,.7);">${escapeHtml(String(f.vkn==null?'—':f.vkn))}</span>
-          <span style="color:rgba(255,255,255,.3);"> (normalize: ${escapeHtml(normVKN(f.vkn) || '—')})</span>
+
+      <div class="fd-hero">
+        <div class="fd-hero-top">
+          <div class="fd-hero-info">
+            <div class="fd-hero-fno">${escapeHtml(f.faturaNo)}</div>
+            <div class="fd-hero-unvan">${escapeHtml(f.gonderenUnvan)}</div>
+          </div>
+          <span class="badge ${durumBadgeClass(gercekDurum)}"><i class="${durumBadgeIcon(gercekDurum)}" aria-hidden="true"></i> ${escapeHtml(gercekDurumEtiket)}</span>
+        </div>
+        <div class="fd-hero-tutar">${fmtTL(f.yon==='netsis' ? f.netsisTutar : f.tutar)}</div>
+      </div>
+
+      <div class="fd-bilgi-grid">
+        <div class="fd-bilgi-hucre">
+          <div class="upload-section-label">VKN/TCKN</div>
+          <div class="fd-bilgi-deger">${escapeHtml(String(f.vkn==null?'—':f.vkn))}</div>
+        </div>
+        <div class="fd-bilgi-hucre">
+          <div class="upload-section-label">Kaynak</div>
+          <div class="fd-bilgi-deger">${escapeHtml(kaynakEtiketiGetir(f.kaynak).label)}</div>
         </div>
       </div>
 
-      <div class="upload-row" style="margin-bottom:14px;">
-        <div>
-          <div class="upload-row-name">Sistem Durumu</div>
-          <div class="upload-row-status ok" style="margin-top:4px;">
-            <span class="badge ${durumBadgeClass(gercekDurum)}"><i class="${durumBadgeIcon(gercekDurum)}" aria-hidden="true"></i> ${escapeHtml(gercekDurumEtiket)}</span>
-          </div>
-        </div>
-        <div style="text-align:right;">
-          <div class="upload-row-name">Tutar</div>
-          <div class="upload-row-status ok" style="color:#fff;font-size:13px;margin-top:4px;">${fmtTL(f.yon==='netsis' ? f.netsisTutar : f.tutar)}</div>
-        </div>
-      </div>
-      <div class="fatura-kaynak-satir">
-        <i class="${kaynakEtiketiGetir(f.kaynak).icon}" aria-hidden="true"></i>
-        Bu fatura <strong>${escapeHtml(kaynakEtiketiGetir(f.kaynak).label)}</strong> kaynağından geldi.
-      </div>
       ${manuelTanim ? `
         <div class="manuel-aktif-uyari">
           <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
@@ -1243,27 +1242,31 @@ function faturaDetayModalAc(key){
         </div>
       ` : ''}
 
-      ${subeAtamaBlokHtml(f)}
+      <div class="fd-akis-blok">${subeAtamaBlokHtml(f)}</div>
 
-      ${f.farkDetay ? farkDetayHtml(f) : ''}
+      ${f.farkDetay ? `<div class="fd-akis-blok">${farkDetayHtml(f)}</div>` : ''}
 
-      <div class="upload-section-label" style="margin-top:${f.farkDetay?'16px':'0'};">MANUEL DURUM İŞARETLE</div>
-      <div class="manuel-durum-grid">
-        ${MANUEL_DURUM_TANIM.map(d=>`
-          <button type="button" class="manuel-durum-btn ${manuelTanim && manuelTanim.key===d.key ? 'active':''}" data-durum="${d.key}">
-            <i class="${d.icon}" aria-hidden="true"></i> ${escapeHtml(d.label)}
-          </button>
-        `).join('')}
+      <div class="fd-akis-blok">
+        <div class="upload-section-label">Manuel durum işaretle</div>
+        <div class="manuel-durum-grid">
+          ${MANUEL_DURUM_TANIM.map(d=>`
+            <button type="button" class="manuel-durum-btn ${manuelTanim && manuelTanim.key===d.key ? 'active':''}" data-durum="${d.key}">
+              <i class="${d.icon}" aria-hidden="true"></i> ${escapeHtml(d.label)}
+            </button>
+          `).join('')}
+        </div>
+        <button type="button" class="manuel-durum-temizle" id="btnManuelDurumTemizle" ${manuelTanim ? '' : 'style="display:none;"'}>
+          <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Manuel durumu kaldır
+        </button>
       </div>
-      <button type="button" class="manuel-durum-temizle" id="btnManuelDurumTemizle" ${manuelTanim ? '' : 'style="display:none;"'}>
-        <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Manuel durumu kaldır
-      </button>
 
-      <div class="upload-section-label" style="margin-top:16px;">NOT EKLE</div>
-      <textarea id="faturaNotAlani" class="fatura-not-alani" placeholder="Örn: KEF2026 nolu fatura ile iade edildi">${escapeHtml(f.not||'')}</textarea>
-      ${f.notGuncellemeZamani ? `<div class="fatura-not-zaman">Son güncelleme: ${new Date(f.notGuncellemeZamani).toLocaleString('tr-TR')}</div>` : ''}
+      <div class="fd-akis-blok">
+        <div class="upload-section-label">Not ekle</div>
+        <textarea id="faturaNotAlani" class="fatura-not-alani" placeholder="Örn: KEF2026 nolu fatura ile iade edildi">${escapeHtml(f.not||'')}</textarea>
+        ${f.notGuncellemeZamani ? `<div class="fatura-not-zaman">Son güncelleme: ${new Date(f.notGuncellemeZamani).toLocaleString('tr-TR')}</div>` : ''}
+      </div>
 
-      <button type="button" class="upload-build-btn" id="btnFaturaDetayKaydet" style="margin-top:16px;">
+      <button type="button" class="upload-build-btn" id="btnFaturaDetayKaydet">
         <i class="fa-solid fa-check" aria-hidden="true"></i> Kaydet
       </button>
     </div>

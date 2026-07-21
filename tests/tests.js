@@ -340,7 +340,7 @@ test('VKN Müşteri Master\'da kayıtlı olup otomatik Keşan\'a düşse BİLE "
   const html = subeAtamaBlokHtml(f);
   assert.notStrictEqual(html.trim(), '', 'ŞUBE bölümü boş DÖNMEMELİ');
   assert.ok(html.includes('btnZincirVknEkle'), '"zincir olarak işaretle" butonu bulunmalı');
-  assert.ok(html.includes('ŞUBE'), 'ŞUBE başlığı görünmeli');
+  assert.ok(html.toLocaleUpperCase('tr-TR').includes('ŞUBE'), 'Şube başlığı görünmeli (görsel olarak CSS text-transform ile büyütülüyor)');
 });
 test('VKN Kontrol grubundaysa (hiçbir master\'da yok) da "zincir olarak işaretle" butonu görünür', ()=>{
   vm.runInContext('state.zincirVknListesi = new Set(); state.subeAtamalari = new Map(); state.faturaSubeAtamalari = new Map();', context);

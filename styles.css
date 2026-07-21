@@ -330,12 +330,12 @@ td.num{font-weight:800;letter-spacing:-.01em;}
 
 .upload-overlay[hidden]{display:none;}
 .upload-modal{
-  background:var(--sidebar);border-radius:16px;padding:18px;width:100%;max-width:420px;
+  background:var(--sidebar);border-radius:16px;padding:20px;width:100%;max-width:420px;
   max-height:88vh;overflow-y:auto;color:#fff;
 }
-.upload-modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+.upload-modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
 .upload-modal-title{color:#fff;font-weight:800;font-size:16px;}
-.upload-close{background:rgba(255,255,255,.08);border:none;color:#fff;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:13px;}
+.upload-close{background:rgba(255,255,255,.08);border:none;color:#fff;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:13px;flex-shrink:0;}
 .upload-close:hover{background:rgba(255,255,255,.15);}
 .upload-tabs{display:flex;gap:4px;background:rgba(255,255,255,.06);border-radius:10px;padding:4px;margin-bottom:16px;}
 .upload-tab{
@@ -345,7 +345,7 @@ td.num{font-weight:800;letter-spacing:-.01em;}
 .upload-tab.active{background:var(--blue);color:#fff;font-weight:700;}
 .upload-panel{display:none;flex-direction:column;gap:10px;}
 .upload-panel.active{display:flex;}
-.upload-section-label{font-size:10px;font-weight:700;letter-spacing:.07em;color:rgba(255,255,255,.42);margin-bottom:2px;}
+.upload-section-label{font-size:10px;font-weight:700;letter-spacing:.07em;color:rgba(255,255,255,.42);margin-bottom:8px;text-transform:uppercase;}
 .upload-row{
   background:rgba(255,255,255,.05);border-radius:10px;padding:11px 12px;
   display:flex;justify-content:space-between;align-items:center;gap:10px;
@@ -363,8 +363,9 @@ td.num{font-weight:800;letter-spacing:-.01em;}
   font-size:11px;color:rgba(255,255,255,.55);line-height:1.5;
 }
 .upload-build-btn{
-  margin-top:16px;width:100%;text-align:center;padding:11px;background:var(--blue);
+  margin-top:4px;width:100%;text-align:center;padding:12px;background:var(--blue);
   border:none;border-radius:10px;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:7px;
 }
 .upload-build-btn:hover:not(:disabled){filter:brightness(1.08);}
 .upload-build-btn:disabled{background:rgba(255,255,255,.06);color:rgba(255,255,255,.35);cursor:not-allowed;}
@@ -382,16 +383,31 @@ td.num{font-weight:800;letter-spacing:-.01em;}
 }
 .satir-not-metni i{color:var(--orange);flex-shrink:0;font-size:10px;}
 
-.fatura-kaynak-satir{
-  display:flex;align-items:center;gap:8px;font-size:11.5px;color:rgba(255,255,255,.5);
-  margin-bottom:14px;padding:8px 11px;background:rgba(255,255,255,.04);border-radius:8px;
+/* ---- Fatura Detayı modalı — Seçenek C: hero özet kartı + 2 kolonlu bilgi grid +
+   tek akış (kartsız) devam eden bölümler. Vurgu SADECE üstteki hero kartında;
+   altındaki bölümler ince üst-ayraçla birbirinden ayrılan düz bir liste halinde
+   akar, böylece göz önce hero'ya, sonra sırasıyla akışa gider. */
+.fd-hero{
+  background:linear-gradient(135deg, rgba(47,107,255,.14), rgba(47,107,255,.02));
+  border:1px solid rgba(47,107,255,.28);border-radius:12px;
+  padding:14px 16px;margin-bottom:14px;
 }
-.fatura-kaynak-satir i{color:#8FB4FF;flex-shrink:0;}
-.fatura-kaynak-satir strong{color:rgba(255,255,255,.85);font-weight:700;}
+.fd-hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+.fd-hero-info{min-width:0;}
+.fd-hero-fno{color:#8FB4FF;font-weight:700;font-size:13.5px;}
+.fd-hero-unvan{color:rgba(255,255,255,.7);font-size:11.5px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.fd-hero-tutar{color:#fff;font-size:21px;font-weight:800;margin-top:10px;}
+
+.fd-bilgi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+.fd-bilgi-hucre{min-width:0;}
+.fd-bilgi-deger{color:rgba(255,255,255,.85);font-size:12.5px;font-weight:600;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+.fd-akis-blok{padding-top:14px;margin-top:14px;border-top:1px solid rgba(255,255,255,.08);}
+.fd-akis-blok:first-of-type{margin-top:0;border-top:1px solid rgba(255,255,255,.08);}
 
 .manuel-aktif-uyari{
   background:rgba(124,92,252,.14);border:1px solid rgba(124,92,252,.3);border-radius:10px;
-  padding:10px 12px;font-size:12px;color:#D7CCFF;line-height:1.5;margin-bottom:16px;
+  padding:10px 12px;font-size:12px;color:#D7CCFF;line-height:1.5;margin-bottom:14px;
   display:flex;gap:8px;align-items:flex-start;
 }
 .manuel-aktif-uyari i{margin-top:2px;flex-shrink:0;color:#B69CFF;}
@@ -402,9 +418,10 @@ td.num{font-weight:800;letter-spacing:-.01em;}
 }
 .storage-warn-banner i{flex-shrink:0;}
 
-.manuel-durum-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+.manuel-durum-grid{display:flex;flex-direction:column;gap:6px;}
+.manuel-durum-grid:not(:last-child){margin-bottom:8px;}
 .manuel-durum-btn{
-  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:9px;
   padding:9px 10px;font-size:12px;font-weight:600;color:rgba(255,255,255,.75);cursor:pointer;
   display:flex;align-items:center;gap:7px;transition:all .15s ease;font-family:inherit;
 }
@@ -412,15 +429,13 @@ td.num{font-weight:800;letter-spacing:-.01em;}
 .manuel-durum-btn.active{background:var(--blue);border-color:var(--blue);color:#fff;}
 .manuel-durum-temizle{
   background:transparent;border:none;color:rgba(255,255,255,.4);font-size:11.5px;
-  cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:6px;font-family:inherit;
+  cursor:pointer;padding:6px 0 0;display:flex;align-items:center;gap:6px;font-family:inherit;
 }
 .manuel-durum-temizle:hover{color:rgba(255,255,255,.7);}
 
-.sube-atama-blok{
-  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;
-  padding:11px 12px;margin-bottom:14px;
-}
-.sube-atama-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:2px;}
+.sube-atama-blok{ /* artık .fd-card'ın üstüne biner, kendi zemini yok */ }
+.sube-durum-etiket{margin-bottom:10px;}
+.sube-atama-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
 .sube-atama-btn{
   background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:9px;
   padding:9px 10px;font-size:12px;font-weight:600;color:rgba(255,255,255,.8);cursor:pointer;
@@ -428,7 +443,12 @@ td.num{font-weight:800;letter-spacing:-.01em;}
 }
 .sube-atama-btn:hover{background:rgba(255,255,255,.09);}
 .sube-atama-btn.active{background:var(--green);border-color:var(--green);color:#fff;}
-.sube-atama-not{font-size:10.5px;color:rgba(255,255,255,.35);line-height:1.5;margin-top:9px;}
+.sube-atama-not{font-size:10.5px;color:rgba(255,255,255,.4);line-height:1.5;margin-top:10px;}
+.sube-atama-link{
+  background:transparent;border:none;color:rgba(255,255,255,.45);font-size:10.5px;
+  cursor:pointer;padding:0;display:flex;align-items:center;gap:5px;font-family:inherit;margin-top:8px;
+}
+.sube-atama-link:hover{color:rgba(255,255,255,.7);}
 
 .donem-onay-blok{
   background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;
@@ -463,7 +483,7 @@ td.num{font-weight:800;letter-spacing:-.01em;}
 }
 .fatura-not-alani:focus{outline:none;border-color:var(--blue);}
 .fatura-not-alani::placeholder{color:rgba(255,255,255,.3);}
-.fatura-not-zaman{font-size:10.5px;color:rgba(255,255,255,.35);margin-top:5px;}
+.fatura-not-zaman{font-size:10.5px;color:rgba(255,255,255,.35);margin-top:6px;}
 
 .not-kart-liste{display:flex;flex-direction:column;gap:0;}
 .not-kart{
@@ -667,7 +687,6 @@ td.num{font-weight:800;letter-spacing:-.01em;}
   .tutar-ozet-grid{grid-template-columns:1fr;}
   table.data-table{font-size:11.5px;}
   .search-box-wrap{width:100%;margin-left:0;}
-  .manuel-durum-grid{grid-template-columns:1fr;}
 
   .kpis{grid-template-columns:1fr 1fr;gap:8px;}
   .kpi-ana{padding:15px;}
