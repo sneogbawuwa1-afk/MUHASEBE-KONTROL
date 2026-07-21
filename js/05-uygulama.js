@@ -91,6 +91,41 @@ function renderUploadPanels(){
       renderUploadPanels();
 
       try{
+        if(kaynakKey === 'netsis'){
+          // NETSİS ÖZEL AKIŞI: ham satırlar direkt ÜZERİNE YAZILMAZ — mevcut (eski)
+          // ham satırlarla VKN+BelgeNo bazında birleştirilir. Aktif ay + 1 ay için
+          // otomatik, diğer aylar için onay istenir (bkz. js/10-netsis-birlestir.js).
+          if(files.length > 1){
+            throw new Error('Netsis dosyası için çoklu dosya seçimi desteklenmiyor, lütfen tek dosya seçin.');
+          }
+          const yeniHamSatirlar = await dosyayiOku(files[0]);
+          const eskiHamSatirlar = (state.kaynaklar.netsis && state.kaynaklar.netsis.rows) || [];
+          // Aktif dönem: yeni dosya yüklenmeden ÖNCEKİ mevcut rapora göre belirlenir —
+          // "hangi ayı çalışıyorsun" sorusunun cevabı, yüklediğin YENİ dosyaya değil,
+          // üstünde çalıştığın MEVCUT duruma göre olmalı.
+          const aktifDonemId = state.rapor ? raporunAitOlduguDonem(state.rapor) : null;
+          const birlesim = netsisHamVeriyiBirlestir(eskiHamSatirlar, yeniHamSatirlar, aktifDonemId);
+
+          state.kaynaklar.netsis = {
+            rows: birlesim.birlesikSatirlar,
+            dosyaAdi: files[0].name,
+            dosyaAdlari: [files[0].name],
+            yuklemeZamani: new Date().toISOString(),
+          };
+          await saveKaynaklarToStorage();
+          yukleniyorKaynaklar.delete(kaynakKey);
+          renderUploadPanels();
+          guncelleRaporOlusturButonu();
+
+          if(birlesim.onayBekleyenDonemler.length){
+            if(typeof toastGoster === 'function') toastGoster(`Netsis güncellendi · ${birlesim.onayBekleyenDonemler.length} dönemde onay bekleyen değişiklik var`, 'bilgi');
+            if(typeof netsisOnayModaliAc === 'function') netsisOnayModaliAc(birlesim.onayBekleyenDonemler);
+          }else{
+            if(typeof toastGoster === 'function') toastGoster(`${kaynakAdi} yüklendi (eski veriyle birleştirildi)`, 'basarili');
+          }
+          return;
+        }
+
         if(files.length > 1){
           // Çoklu dosya (şu an yalnızca E-Arşiv için): her dosyayı sırayla oku ve
           // satırları tek bir kaynak altında birleştir. Dosya adları ayrıca saklanır

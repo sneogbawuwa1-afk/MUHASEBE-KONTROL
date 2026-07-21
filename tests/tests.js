@@ -11,6 +11,7 @@ const kod04 = fs.readFileSync(path.join(__dirname, '..', 'js', '04-genel-bakis.j
 const kod07 = fs.readFileSync(path.join(__dirname, '..', 'js', '07-donem-arsivi.js'), 'utf8');
 const kod08 = fs.readFileSync(path.join(__dirname, '..', 'js', '08-senkron-katmani.js'), 'utf8');
 const kod09 = fs.readFileSync(path.join(__dirname, '..', 'js', '09-firebase.js'), 'utf8');
+const kod10 = fs.readFileSync(path.join(__dirname, '..', 'js', '10-netsis-birlestir.js'), 'utf8');
 
 const sahteDocument = {
   getElementById: ()=> null,
@@ -29,6 +30,7 @@ vm.runInContext(kod07, context);
 vm.runInContext(kod08, context);
 vm.runInContext(kod09, context);
 vm.runInContext(kod04, context);
+vm.runInContext(kod10, context);
 
 const {
   normVKN, parseFaturaNo, digitsYakinMi, faturaNoYakinMi, matchKey, toNumber,
@@ -38,6 +40,7 @@ const {
   vknSubesiAtanmisMi, donemFarkiAySayisi, donemOtomatikYazilabilirMi,
   donemGuncellemeAnaliziniYap, donemOnayiUygula, donemeAitSatirlariFiltrele,
   derinDateTemizle, derinAnahtarKodla, derinAnahtarKodCoz, subeAtamaBlokHtml,
+  netsisHamVeriyiBirlestir, netsisOnayiUygula, netsisHamSatirAnahtarUret,
 } = context;
 
 // NOT: `const state = {...}` gibi top-level bindingler Node'un vm.runInContext'inde
@@ -360,6 +363,38 @@ test('VKN manuel olarak (VKN bazlı) atanmışsa doğru rozet gösterilir ve "zi
   const html = subeAtamaBlokHtml(f);
   assert.ok(html.includes('manuel atandı'), 'manuel atama rozeti gösterilmeli');
   assert.ok(html.includes('btnZincirVknEkle'), 'manuel atanmış VKN için de zincir işaretleme seçeneği sunulmalı');
+});
+
+baslik('\nsubeAtamaBlokHtml — VKN/TCKN boş olan fatura senaryosu (kullanıcının bildirdiği ekran görüntüsü)');
+test('VKN boş (null) olan bir faturada zincir/VKN-bazlı butonlar DEĞİL, sadece fatura-bazlı atama gösterilir', ()=>{
+  vm.runInContext('state.zincirVknListesi = new Set(); state.subeAtamalari = new Map(); state.faturaSubeAtamalari = new Map();', context);
+  const f = { vkn: null, faturaKey: 'test-key-vknsiz-1', subeGrup: 'kontrol', sube: 'Kontrol' };
+  const html = subeAtamaBlokHtml(f);
+  assert.ok(!html.includes('btnZincirVknEkle'), 'VKN yokken "zincir olarak işaretle" butonu gösterilmemeli (atanacak VKN yok)');
+  assert.ok(html.includes('fatura-sube-atama-btn'), 'fatura bazlı (VKN gerektirmeyen) atama butonları gösterilmeli');
+  assert.ok(html.includes('VKN/TCKN okunamadı'), 'kullanıcıya VKN eksikliği açıkça belirtilmeli');
+});
+test('VKN boş string (\'\') olan bir fatura da aynı şekilde ele alınır (falsy kontrolü doğru çalışır)', ()=>{
+  vm.runInContext('state.zincirVknListesi = new Set(); state.subeAtamalari = new Map(); state.faturaSubeAtamalari = new Map();', context);
+  const f = { vkn: '', faturaKey: 'test-key-vknsiz-2', subeGrup: 'kontrol', sube: 'Kontrol' };
+  const html = subeAtamaBlokHtml(f);
+  assert.ok(!html.includes('btnZincirVknEkle'));
+  assert.ok(html.includes('fatura-sube-atama-btn'));
+});
+test('VKN boş olan bir faturaya fatura-bazlı atama yapılırsa (faturaSubeAtamalari), doğru rozet gösterilir', ()=>{
+  context.__test_fatura_sube_vknsiz = new Map([['test-key-vknsiz-3', 'kesan']]);
+  vm.runInContext('state.zincirVknListesi = new Set(); state.subeAtamalari = new Map(); state.faturaSubeAtamalari = __test_fatura_sube_vknsiz;', context);
+  const f = { vkn: null, faturaKey: 'test-key-vknsiz-3', subeGrup: 'kontrol', sube: 'Kontrol' };
+  const html = subeAtamaBlokHtml(f);
+  assert.ok(html.includes('bu fatura için, elle'), 'fatura bazlı atama rozeti gösterilmeli');
+});
+test('zincirVknEkle(\'\') veya zincirVknEkle(null) çağrılırsa zincir listesine hiçbir şey eklenmez (savunma testi)', async ()=>{
+  vm.runInContext('state.zincirVknListesi = new Set();', context);
+  await context.zincirVknEkle('');
+  await context.zincirVknEkle(null);
+  await context.zincirVknEkle(undefined);
+  const boyut = vm.runInContext('state.zincirVknListesi.size', context);
+  assert.strictEqual(boyut, 0, 'boş/null/undefined VKN zincir listesine eklenmemeli');
 });
 
 baslik('\nvknSubesiAtanmisMi (state.subeAtamalari okuma)');
@@ -871,6 +906,186 @@ test('string faturaTarihi, gerçek Date nesnesine geri çevrilir', ()=>{
   assert.strictEqual(Object.prototype.toString.call(faturaTarihi), '[object Date]', 'faturaTarihi gerçek Date nesnesi olmalı');
   assert.strictEqual(faturaTarihi.getFullYear(), 2026);
   assert.strictEqual(faturaTarihi.getMonth(), 5); // Haziran
+});
+
+baslik('\nnetsisHamVeriyiBirlestir — KRİTİK REGRESYON TESTİ (kullanıcının bildirdiği veri kaybı bug\'ı)');
+test('sadece Keşan verisi içeren yeni dosya yüklenince, Bayrampaşa\'nın eski satırları SİLİNMEZ (aktif ay içinde)', ()=>{
+  const eskiHamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'FA001','Tarih':'10.06.2026','Cari İsim':'KEŞAN MÜŞTERİSİ','KDV Toplamı':'18','Genel Toplam':'118'},
+    {'VKN/TCKN':'5556667778','Belge No':'FA002','Tarih':'12.06.2026','Cari İsim':'BAYRAMPAŞA MÜŞTERİSİ','KDV Toplamı':'36','Genel Toplam':'236'},
+  ];
+  // Yeni dosya sadece Keşan verisini içeriyor (Bayrampaşa'nınki dosyada YOK)
+  const yeniHamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'FA001','Tarih':'10.06.2026','Cari İsim':'KEŞAN MÜŞTERİSİ','KDV Toplamı':'18','Genel Toplam':'118'},
+  ];
+  const aktifDonemId = '2026-06'; // Haziran çalışılıyor, veri de Haziran'a ait -> otomatik
+  const sonuc = netsisHamVeriyiBirlestir(eskiHamSatirlar, yeniHamSatirlar, aktifDonemId);
+
+  const belgeNolar = sonuc.birlesikSatirlar.map(s=> s['Belge No']);
+  assert.ok(belgeNolar.includes('FA001'), 'Keşan satırı (yeni dosyada var) olmalı');
+  assert.ok(belgeNolar.includes('FA002'), 'Bayrampaşa satırı (yeni dosyada yok ama eskide vardı) SİLİNMEMELİ');
+  assert.strictEqual(sonuc.birlesikSatirlar.length, 2);
+});
+test('yeni dosyada DEĞİŞEN bir satır (aynı VKN+BelgeNo, farklı tutar) günceller', ()=>{
+  const eskiHamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'FA001','Tarih':'10.06.2026','Cari İsim':'ESKİ İSİM','KDV Toplamı':'18','Genel Toplam':'100'},
+  ];
+  const yeniHamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'FA001','Tarih':'10.06.2026','Cari İsim':'YENİ İSİM','KDV Toplamı':'18','Genel Toplam':'150'},
+  ];
+  const sonuc = netsisHamVeriyiBirlestir(eskiHamSatirlar, yeniHamSatirlar, '2026-06');
+  assert.strictEqual(sonuc.birlesikSatirlar.length, 1);
+  assert.strictEqual(sonuc.birlesikSatirlar[0]['Genel Toplam'], '150'); // güncellendi
+  assert.strictEqual(sonuc.birlesikSatirlar[0]['Cari İsim'], 'YENİ İSİM');
+});
+test('yeni dosyada YEPYENİ bir satır (eskiden hiç yoktu) eklenir', ()=>{
+  const eskiHamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'FA001','Tarih':'10.06.2026','Cari İsim':'A','KDV Toplamı':'18','Genel Toplam':'118'},
+  ];
+  const yeniHamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'FA001','Tarih':'10.06.2026','Cari İsim':'A','KDV Toplamı':'18','Genel Toplam':'118'},
+    {'VKN/TCKN':'9998887776','Belge No':'FA999','Tarih':'15.06.2026','Cari İsim':'YENİ MÜŞTERİ','KDV Toplamı':'5','Genel Toplam':'55'},
+  ];
+  const sonuc = netsisHamVeriyiBirlestir(eskiHamSatirlar, yeniHamSatirlar, '2026-06');
+  assert.strictEqual(sonuc.birlesikSatirlar.length, 2);
+  assert.ok(sonuc.birlesikSatirlar.some(s=> s['Belge No']==='FA999'));
+});
+test('boş eski veriyle (ilk yükleme) tüm yeni satırlar sorunsuz kabul edilir', ()=>{
+  const yeniHamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'FA001','Tarih':'10.06.2026','Cari İsim':'A','KDV Toplamı':'18','Genel Toplam':'118'},
+  ];
+  const sonuc = netsisHamVeriyiBirlestir([], yeniHamSatirlar, null);
+  assert.strictEqual(sonuc.birlesikSatirlar.length, 1);
+  assert.strictEqual(sonuc.onayBekleyenDonemler.length, 0);
+});
+
+baslik('\nnetsisHamVeriyiBirlestir — geçmiş/uzak dönem onay mekanizması');
+test('aktif aydan ÖNCEKİ bir ayda (Mayıs) fark varsa onay bekleyen listeye düşer, otomatik silinmez', ()=>{
+  const eskiHamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'MAYIS001','Tarih':'10.05.2026','Cari İsim':'MAYIS MÜŞTERİSİ','KDV Toplamı':'18','Genel Toplam':'118'},
+    {'VKN/TCKN':'1112223334','Belge No':'HAZ001','Tarih':'10.06.2026','Cari İsim':'HAZİRAN MÜŞTERİSİ','KDV Toplamı':'18','Genel Toplam':'118'},
+  ];
+  // Yeni dosyada Mayıs'ın kaydı YOK (kullanıcı sadece Haziran'ı yükledi ama dosyada eski Mayıs kaydı da olabilir farklı senaryolarda)
+  const yeniHamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'HAZ001','Tarih':'10.06.2026','Cari İsim':'HAZİRAN MÜŞTERİSİ','KDV Toplamı':'18','Genel Toplam':'118'},
+  ];
+  const aktifDonemId = '2026-06'; // Haziran çalışılıyor, Mayıs artık "geçmiş" sayılır
+  const sonuc = netsisHamVeriyiBirlestir(eskiHamSatirlar, yeniHamSatirlar, aktifDonemId);
+
+  // Mayıs'ın eski kaydı hâlâ birleşik listede olmalı (silinmedi, onay bekliyor)
+  const belgeNolar = sonuc.birlesikSatirlar.map(s=> s['Belge No']);
+  assert.ok(belgeNolar.includes('MAYIS001'), 'Mayıs kaydı onay beklerken KORUNMALI');
+
+  // Ve onay bekleyen dönemler listesinde Mayıs görünmeli
+  const mayisOnay = sonuc.onayBekleyenDonemler.find(d=> d.donemId==='2026-05');
+  assert.ok(mayisOnay, 'Mayıs onay bekleyenler arasında olmalı');
+  assert.strictEqual(mayisOnay.eksikSatirlar.length, 1);
+});
+test('aktif ay + 1 sonraki ay (Temmuz) için fark varsa onay istenmez, otomatik işlenir', ()=>{
+  const eskiHamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'TEM001','Tarih':'05.07.2026','Cari İsim':'A','KDV Toplamı':'18','Genel Toplam':'118'},
+  ];
+  const yeniHamSatirlar = []; // Temmuz kaydı yeni dosyada yok
+  const aktifDonemId = '2026-06'; // Haziran çalışılıyor, Temmuz bir sonraki ay
+  const sonuc = netsisHamVeriyiBirlestir(eskiHamSatirlar, yeniHamSatirlar, aktifDonemId);
+  assert.strictEqual(sonuc.onayBekleyenDonemler.length, 0); // Temmuz için onay istenmemeli
+  assert.ok(sonuc.birlesikSatirlar.some(s=> s['Belge No']==='TEM001')); // ama satır yine de korunuyor (otomatik = sessizce kabul)
+});
+test('farksız geçmiş dönem (eski ile yeni birebir aynı) onay listesine hiç girmez', ()=>{
+  const satirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'MAYIS001','Tarih':'10.05.2026','Cari İsim':'A','KDV Toplamı':'18','Genel Toplam':'118'},
+  ];
+  const sonuc = netsisHamVeriyiBirlestir(satirlar, satirlar, '2026-06');
+  assert.strictEqual(sonuc.onayBekleyenDonemler.length, 0);
+});
+test('aktif dönem null ise (henüz hiç rapor yoksa) her şey otomatik kabul edilir', ()=>{
+  const eskiHamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'MAYIS001','Tarih':'10.05.2026','Cari İsim':'A','KDV Toplamı':'18','Genel Toplam':'118'},
+  ];
+  const yeniHamSatirlar = [];
+  const sonuc = netsisHamVeriyiBirlestir(eskiHamSatirlar, yeniHamSatirlar, null);
+  assert.strictEqual(sonuc.onayBekleyenDonemler.length, 0);
+  assert.ok(sonuc.birlesikSatirlar.some(s=> s['Belge No']==='MAYIS001'));
+});
+
+baslik('\nnetsisOnayiUygula — kullanıcı onayından sonra eksik satırları çıkarma');
+test('işaretlenen anahtarlar ham satırlardan çıkarılır', ()=>{
+  const hamSatirlar = [
+    {'VKN/TCKN':'1112223334','Belge No':'FA001','Tarih':'10.06.2026'},
+    {'VKN/TCKN':'5556667778','Belge No':'FA002','Tarih':'11.06.2026'},
+  ];
+  const cikarilacakAnahtar = netsisHamSatirAnahtarUret(hamSatirlar[0]);
+  const sonuc = netsisOnayiUygula(hamSatirlar, new Set([cikarilacakAnahtar]));
+  assert.strictEqual(sonuc.length, 1);
+  assert.strictEqual(sonuc[0]['Belge No'], 'FA002');
+});
+test('boş/undefined Set verilirse hiçbir şey değişmez', ()=>{
+  const hamSatirlar = [{'VKN/TCKN':'1112223334','Belge No':'FA001','Tarih':'10.06.2026'}];
+  assert.strictEqual(netsisOnayiUygula(hamSatirlar, new Set()).length, 1);
+  assert.strictEqual(netsisOnayiUygula(hamSatirlar, null).length, 1);
+});
+
+baslik('\nfaturaDetayModalAc — modal üst üste binme regresyon testi (bildirilen bug)');
+test('modal art arda birden fazla kez açılmaya çalışılsa bile document.body\'de sadece 1 tane kalır', ()=>{
+  // Bu test kendi izole DOM mock'unu kurar çünkü ana test context'indeki sahteDocument
+  // çok basit (querySelector hep null döner) — faturaDetayModalAc gerçek querySelector
+  // davranışına ihtiyaç duyuyor (id ile eleman bulma).
+  const bodyElements = [];
+  function sahteElementOlustur(){
+    const el = {
+      id: '', className: '', innerHTML: '', style: {}, disabled: false, _cocuklar: [],
+      classList: { add(c){ el.className += ' '+c; }, remove(){}, contains(){ return false; } },
+      querySelectorAll(sel){ return el._cocuklar.filter(c=> selEslesirMi(c, sel)); },
+      querySelector(sel){ return el._cocuklar.find(c=> selEslesirMi(c, sel)) || null; },
+      addEventListener(){},
+      appendChild(child){ el._cocuklar.push(child); },
+      remove(){ const idx = bodyElements.indexOf(el); if(idx>=0) bodyElements.splice(idx,1); },
+    };
+    return el;
+  }
+  function selEslesirMi(el, sel){
+    if(sel.startsWith('#')) return el.id === sel.slice(1);
+    if(sel.startsWith('.')) return el.className && el.className.split(' ').includes(sel.slice(1));
+    return false;
+  }
+  function overlayOlustur(){
+    const el = sahteElementOlustur();
+    Object.defineProperty(el, 'innerHTML', {
+      set(html){
+        el._html = html; el._cocuklar = [];
+        const idRegex = /id="([^"]+)"/g;
+        let m;
+        while((m = idRegex.exec(html))){ const c = sahteElementOlustur(); c.id = m[1]; el._cocuklar.push(c); }
+      },
+      get(){ return el._html || ''; }
+    });
+    return el;
+  }
+  const izoleSahteDocument = {
+    getElementById: ()=> null,
+    querySelectorAll: (sel)=> sel === '#faturaDetayOverlay' ? bodyElements.filter(el=> el.id==='faturaDetayOverlay') : [],
+    createElement: ()=> overlayOlustur(),
+    body: { appendChild: (el)=> bodyElements.push(el), prepend(){} },
+    addEventListener(){}, removeEventListener(){},
+  };
+  const izoleContext = { document: izoleSahteDocument, window: {indexedDB:{}}, indexedDB:{}, console };
+  vm.createContext(izoleContext);
+  vm.runInContext(kod01, izoleContext);
+  vm.runInContext(kod02, izoleContext);
+  vm.runInContext(kod03, izoleContext);
+  vm.runInContext(kod07, izoleContext);
+  vm.runInContext(kod08, izoleContext);
+  vm.runInContext(kod09, izoleContext);
+  vm.runInContext(kod04, izoleContext);
+
+  vm.runInContext(`state.rapor = { faturalar: [{faturaKey:'test-1', vkn:'123', faturaNo:'F1', gonderenUnvan:'Test', durum:'eslesti', durumEtiket:'Eşleşti', tutar:100, kaynak:'earsiv', subeGrup:'kontrol', sube:'Kontrol', manuelDurum:null, not:''}] };`, izoleContext);
+
+  izoleContext.faturaDetayModalAc('test-1');
+  izoleContext.faturaDetayModalAc('test-1');
+  izoleContext.faturaDetayModalAc('test-1');
+
+  const overlaySayisi = bodyElements.filter(el=> el.id==='faturaDetayOverlay').length;
+  assert.strictEqual(overlaySayisi, 1, `Modal 3 kez açılmaya çalışıldı ama document.body'de ${overlaySayisi} tane overlay kaldı (1 olmalıydı) — üst üste binme bug'ı geri geldi`);
 });
 
 asyncTestZinciri.then(()=>{

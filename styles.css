@@ -450,7 +450,7 @@ td.num{font-weight:800;letter-spacing:-.01em;}
 }
 .donem-onay-eksik-satir:first-child{border-top:none;}
 .donem-onay-eksik-satir:hover{background:rgba(255,255,255,.03);}
-.donem-onay-cikar-cb{width:15px;height:15px;accent-color:var(--red);cursor:pointer;}
+.donem-onay-cikar-cb, .netsis-onay-cikar-cb{width:15px;height:15px;accent-color:var(--red);cursor:pointer;}
 .donem-onay-fno{color:#8FB4FF;font-weight:700;}
 .donem-onay-unvan{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .donem-onay-tutar{text-align:right;font-weight:700;color:#fff;}

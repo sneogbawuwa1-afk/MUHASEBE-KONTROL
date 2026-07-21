@@ -254,6 +254,93 @@ function donemOnayModaliAc(onayBekleyenDonemler){
   });
 }
 
+// ===== NETSİS HAM VERİ ONAY MODALI =====
+// donemOnayModaliAc'a çok benzer, ama İŞLENMİŞ rapor satırları değil HAM Netsis Excel
+// satırları üzerinde çalışır (bkz. js/10-netsis-birlestir.js) — çünkü bu, dosya
+// yüklenirken (rapor henüz hesaplanmadan) tetiklenir. Onaydan sonra doğrudan
+// state.kaynaklar.netsis.rows güncellenir (arşive değil, canlı kaynağın kendisine).
+function netsisOnayModaliAc(onayBekleyenDonemler){
+  if(!onayBekleyenDonemler || !onayBekleyenDonemler.length) return;
+  if(document.getElementById('netsisOnayOverlay')) return; // zaten açık, tekrar açma
+
+  const donemBlokHtml = (d, dIndex)=>{
+    const yeniSatirlarHtml = d.yeniVeyaDegisenSatirlar.slice(0, 30).map(hamSatir=>`
+      <div class="donem-onay-satir">
+        <span class="donem-onay-fno">${escapeHtml(hamSatir['Belge No']||'')}</span>
+        <span class="donem-onay-unvan">${escapeHtml(hamSatir['Cari İsim']||'')}</span>
+        <span class="donem-onay-tutar">${fmtTL(toNumber(hamSatir['Genel Toplam']))}</span>
+      </div>
+    `).join('');
+
+    const eksikSatirlarHtml = d.eksikSatirlar.slice(0, 60).map((hamSatir)=>`
+      <label class="donem-onay-eksik-satir">
+        <input type="checkbox" class="netsis-onay-cikar-cb" data-donem-index="${dIndex}" data-anahtar="${escapeHtml(netsisHamSatirAnahtarUret(hamSatir))}">
+        <span class="donem-onay-fno">${escapeHtml(hamSatir['Belge No']||'')}</span>
+        <span class="donem-onay-unvan">${escapeHtml(hamSatir['Cari İsim']||'')}</span>
+        <span class="donem-onay-tutar">${fmtTL(toNumber(hamSatir['Genel Toplam']))}</span>
+      </label>
+    `).join('');
+
+    return `
+      <div class="donem-onay-blok">
+        <div class="donem-onay-blok-baslik"><i class="fa-solid fa-calendar-week" aria-hidden="true"></i> ${escapeHtml(d.donemEtiket)}</div>
+
+        ${d.yeniVeyaDegisenSatirlar.length ? `
+          <div class="donem-onay-alt-baslik ok">${fmtInt(d.yeniVeyaDegisenSatirlar.length)} yeni/değişen kayıt — otomatik eklendi</div>
+          <div class="donem-onay-liste">${yeniSatirlarHtml}</div>
+          ${d.yeniVeyaDegisenSatirlar.length>30? `<div class="donem-onay-fazla">…ve ${fmtInt(d.yeniVeyaDegisenSatirlar.length-30)} tane daha</div>` : ''}
+        ` : ''}
+
+        ${d.eksikSatirlar.length ? `
+          <div class="donem-onay-alt-baslik uyari">${fmtInt(d.eksikSatirlar.length)} kayıt eski veride vardı ama yeni dosyada yok — çıkarılacakları işaretleyin (işaretlenmeyenler korunur)</div>
+          <div class="donem-onay-liste">${eksikSatirlarHtml}</div>
+          ${d.eksikSatirlar.length>60? `<div class="donem-onay-fazla">…ve ${fmtInt(d.eksikSatirlar.length-60)} tane daha (otomatik korunur)</div>` : ''}
+        ` : ''}
+      </div>
+    `;
+  };
+
+  const overlay = document.createElement('div');
+  overlay.className = 'upload-overlay';
+  overlay.id = 'netsisOnayOverlay';
+  overlay.innerHTML = `
+    <div class="upload-modal" style="max-width:560px;">
+      <div class="upload-modal-head">
+        <div class="upload-modal-title">Netsis Verisi — Geçmiş Dönem Değişikliği Onayı</div>
+      </div>
+      <div style="color:rgba(255,255,255,.65); font-size:12.5px; margin-bottom:14px; line-height:1.6;">
+        Yüklediğiniz Netsis dosyasında, aktif çalıştığınız ayın dışında kalan dönemlere ait
+        değişiklikler bulundu. Yeni/değişen kayıtlar zaten otomatik eklendi — eksik kayıtlar
+        için aşağıdan karar verin.
+      </div>
+      <div id="netsisOnayGovde">
+        ${onayBekleyenDonemler.map(donemBlokHtml).join('')}
+      </div>
+      <button type="button" class="upload-build-btn" id="btnNetsisOnayUygula" style="margin-top:16px;">
+        <i class="fa-solid fa-check" aria-hidden="true"></i> Tümünü Göz Ardı Et ve Uygula
+      </button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('btnNetsisOnayUygula').addEventListener('click', async ()=>{
+    const cikarilacakAnahtarlar = new Set();
+    overlay.querySelectorAll('.netsis-onay-cikar-cb:checked').forEach(cb=>{
+      cikarilacakAnahtarlar.add(cb.dataset.anahtar);
+    });
+
+    if(cikarilacakAnahtarlar.size){
+      state.kaynaklar.netsis.rows = netsisOnayiUygula(state.kaynaklar.netsis.rows, cikarilacakAnahtarlar);
+      await saveKaynaklarToStorage();
+      guncelleRaporOlusturButonu();
+      if(typeof toastGoster === 'function') toastGoster(`${cikarilacakAnahtarlar.size} kayıt Netsis verisinden çıkarıldı`, 'basarili');
+    }
+
+    overlay.remove();
+  });
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay){ /* dışarı tıklayınca kapanmasın — kullanıcı bilinçli karar vermeli */ } });
+}
+
 // ===== AY SONU KONTROLÜ 2-3-4: Dönem paneli =====
 // Dönem seçici (arşivdeki aylar) + seçili döneme göre: önceki ayla KPI karşılaştırması,
 // gün bazlı kapsama boşlukları, KDV/tutar dönem toplamı çapraz kontrolü.
@@ -974,10 +1061,37 @@ async function faturaDetayKaydet(faturaKey, overlay, kapat){
 }
 
 function subeAtamaBlokHtml(f){
-  const zincirMi = vknZincirMi(f.vkn); // Migros gibi: VKN paylaşımlı marka
-  const manuelAtanmisMi = vknSubesiAtanmisMi(f.vkn); // 'kesan' | 'bayrampasa' | null (VKN bazlı, zincir DEĞİLSE geçerli)
+  const vknYokMu = !f.vkn; // VKN/TCKN hiç okunamamış (örn. bazı E-Arşiv satırlarında olabilir)
+  const zincirMi = !vknYokMu && vknZincirMi(f.vkn); // Migros gibi: VKN paylaşımlı marka
+  const manuelAtanmisMi = !vknYokMu ? vknSubesiAtanmisMi(f.vkn) : null; // 'kesan' | 'bayrampasa' | null (VKN bazlı, zincir DEĞİLSE geçerli)
   const faturaAtanmisMi = faturaSubesiAtanmisMi(f.faturaKey); // 'kesan' | 'bayrampasa' | null (fatura bazlı, sadece zincirler için)
   const suanSubeGrubu = f.subeGrup; // computeRapor'un o an atadığı grup (kontrol/kesan/bayrampasa)
+
+  // VKN/TCKN HİÇ YOK: bu faturada VKN alanı boş (Excel'de eksik/okunamamış olabilir).
+  // VKN-bazlı hiçbir atama (zincir işaretleme, kalıcı VKN ataması) mantıklı olmaz çünkü
+  // atanacak bir VKN yok — bunun yerine SADECE fatura bazlı (faturaKey'e göre) atama
+  // sunuyoruz, kullanıcıyı bilgilendiriyoruz.
+  if(vknYokMu){
+    const durumEtiketi = faturaAtanmisMi
+      ? `<span class="badge badge-manuel ${faturaAtanmisMi==='kesan'?'badge-success':'badge-purple'}"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i> ${faturaAtanmisMi==='kesan'?'Keşan':'Bayrampaşa'} (bu fatura için, elle)</span>`
+      : `<span class="badge badge-warn"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> VKN/TCKN okunamadı — sadece bu fatura için atama yapılabilir</span>`;
+    return `
+      <div class="sube-atama-blok">
+        <div class="upload-section-label">ŞUBE</div>
+        <div style="margin:6px 0 10px;">${durumEtiketi}</div>
+        <div class="sube-atama-grid">
+          <button type="button" class="sube-atama-btn fatura-sube-atama-btn ${faturaAtanmisMi==='kesan'?'active':''}" data-sube="kesan">
+            <i class="fa-solid fa-building" aria-hidden="true"></i> Keşan'a ata
+          </button>
+          <button type="button" class="sube-atama-btn fatura-sube-atama-btn ${faturaAtanmisMi==='bayrampasa'?'active':''}" data-sube="bayrampasa">
+            <i class="fa-solid fa-building" aria-hidden="true"></i> Bayrampaşa'ya ata
+          </button>
+        </div>
+        ${faturaAtanmisMi ? `<button type="button" class="manuel-durum-temizle" id="btnFaturaSubeAtamaTemizle"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Bu faturanın atamasını kaldır</button>` : ''}
+        <div class="sube-atama-not">Bu faturada VKN/TCKN bilgisi bulunamadı, bu yüzden VKN'ye bağlı kalıcı bir atama (zincir işaretleme gibi) yapılamıyor — atama sadece bu faturaya özel kalır.</div>
+      </div>
+    `;
+  }
 
   // ZİNCİR VKN (örn. Migros): VKN bazlı atama burada GEÇERSİZ — her fatura kendi
   // başına, faturaKey'e göre atanır. Zincir listesinden çıkarma seçeneği de sunulur.
@@ -1049,6 +1163,18 @@ function kaynakEtiketiGetir(kaynakKey){
 function faturaDetayModalAc(key){
   const f = state.rapor.faturalar.find(x=> x.faturaKey===key);
   if(!f) return;
+
+  // KRİTİK DÜZELTME: Aynı ID'ye (faturaDetayOverlay) sahip birden fazla modal
+  // document.body'e eklenebiliyordu — örneğin şube atama sonrası "overlay.remove();
+  // faturaDetayModalAc(key);" akışında, bir önceki overlay her nedense kaldırılmadan
+  // yeni bir tane eklenirse, iki (hatta daha fazla) overlay ÜST ÜSTE birikiyordu.
+  // Bu da hem arka planın giderek karartılmasına (her overlay kendi yarı-saydam
+  // katmanını ekliyor) hem de tıklamaların ARTIK EN ÜSTTEKİ overlay'e gitmesine ama
+  // querySelector çağrılarının document.getElementById ile İLK (en eski, artık
+  // görünmeyen) overlay'i bulup ona event listener bağlamasına yol açıyordu — yani
+  // kullanıcı en üstteki (görünen) modaldaki butona bassa bile hiçbir şey olmuyordu.
+  // Çözüm: yeni modal açmadan ÖNCE, varsa TÜM eski faturaDetayOverlay'leri temizle.
+  document.querySelectorAll('#faturaDetayOverlay').forEach(eski=> eski.remove());
 
   const manuelTanim = f.manuelDurum ? manuelDurumTanimBul(f.manuelDurum) : null;
   const gercekDurum = f.manuelDurum ? f.orijinalDurum : f.durum;
@@ -1141,45 +1267,64 @@ function faturaDetayModalAc(key){
   // NOT: fatura-sube-atama-btn (zincir VKN'ler için, faturaKey bazlı) ve normal
   // sube-atama-btn (VKN bazlı) AYRI seçicilerle ele alınır — birbirine karışmasın diye
   // :not(.fatura-sube-atama-btn) ile normal VKN bazlı butonlar filtrelenir.
-  overlay.querySelectorAll('.sube-atama-btn:not(.fatura-sube-atama-btn)').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const secilenGrup = btn.dataset.sube;
-      const zatenBuGrupMu = vknSubesiAtanmisMi(f.vkn) === secilenGrup;
-      await vknSubesiniAta(f.vkn, zatenBuGrupMu ? null : secilenGrup); // tekrar tıklayınca kaldır (toggle)
+  //
+  // ÖNEMLİ: Zincir VKN'ler (örn. Migros, yüzlerce fatura) için computeRapor +
+  // saveRaporToStorage (RTDB yazımı) BİR KAÇ SANİYE sürebilir. Bu süre boyunca
+  // kullanıcı "tepki almıyorum" hissiyle tekrar tekrar tıklarsa, her tıklama yeni bir
+  // faturaDetayModalAc çağrısı + potansiyel modal üst üste binmesine yol açabiliyordu.
+  // Çözüm: tıklanan modalın TÜM butonlarını hemen devre dışı bırakıp "İşleniyor…"
+  // göstergesi ekliyoruz — işlem bitene kadar hiçbir buton tekrar tıklanamaz.
+  function modalButonlariniKilitle(){
+    overlay.querySelectorAll('button').forEach(b=> b.disabled = true);
+    overlay.style.opacity = '0.6';
+    overlay.style.pointerEvents = 'none';
+  }
+
+  async function subeIslemiCalistirVeYenidenAc(islemFn){
+    modalButonlariniKilitle();
+    try{
+      await islemFn();
       await subeAtamasiSonrasiYenidenHesapla();
+    }catch(hata){
+      // Beklenmeyen bir hata (örn. depolama erişim sorunu, ağ hatası) — işlemi sessizce
+      // yutmuyoruz, kullanıcıya haber veriyoruz. finally bloğu yine de modalı güncel
+      // state ile yeniden açacak (atama muhtemelen yerel state'e işlenmiştir bile olsa
+      // kalıcı kayıt/senkron başarısız olmuş olabilir).
+      console.error('Şube/zincir atama işlemi sırasında hata:', hata);
+      if(typeof toastGoster === 'function') toastGoster('İşlem kaydedilirken bir sorun oluştu, tekrar deneyin', 'hata');
+    }finally{
       overlay.remove();
       faturaDetayModalAc(key); // aynı fatura, güncel şube bilgisiyle yeniden aç
+    }
+  }
+
+  overlay.querySelectorAll('.sube-atama-btn:not(.fatura-sube-atama-btn)').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const secilenGrup = btn.dataset.sube;
+      const zatenBuGrupMu = vknSubesiAtanmisMi(f.vkn) === secilenGrup;
+      subeIslemiCalistirVeYenidenAc(()=> vknSubesiniAta(f.vkn, zatenBuGrupMu ? null : secilenGrup)); // tekrar tıklayınca kaldır (toggle)
     });
   });
   const subeTemizleBtn = overlay.querySelector('#btnSubeAtamaTemizle');
   if(subeTemizleBtn){
-    subeTemizleBtn.addEventListener('click', async ()=>{
-      await vknSubesiniAta(f.vkn, null);
-      await subeAtamasiSonrasiYenidenHesapla();
-      overlay.remove();
-      faturaDetayModalAc(key);
+    subeTemizleBtn.addEventListener('click', ()=>{
+      subeIslemiCalistirVeYenidenAc(()=> vknSubesiniAta(f.vkn, null));
     });
   }
 
   // Fatura bazlı şube atama butonları (SADECE zincir VKN'ler için gösterilir) —
   // faturaKey'e göre atanır, VKN'ye değil; aynı VKN'nin başka faturalarını etkilemez.
   overlay.querySelectorAll('.fatura-sube-atama-btn').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
+    btn.addEventListener('click', ()=>{
       const secilenGrup = btn.dataset.sube;
       const zatenBuGrupMu = faturaSubesiAtanmisMi(f.faturaKey) === secilenGrup;
-      await faturaSubesiniAta(f.faturaKey, zatenBuGrupMu ? null : secilenGrup);
-      await subeAtamasiSonrasiYenidenHesapla();
-      overlay.remove();
-      faturaDetayModalAc(key);
+      subeIslemiCalistirVeYenidenAc(()=> faturaSubesiniAta(f.faturaKey, zatenBuGrupMu ? null : secilenGrup));
     });
   });
   const faturaSubeTemizleBtn = overlay.querySelector('#btnFaturaSubeAtamaTemizle');
   if(faturaSubeTemizleBtn){
-    faturaSubeTemizleBtn.addEventListener('click', async ()=>{
-      await faturaSubesiniAta(f.faturaKey, null);
-      await subeAtamasiSonrasiYenidenHesapla();
-      overlay.remove();
-      faturaDetayModalAc(key);
+    faturaSubeTemizleBtn.addEventListener('click', ()=>{
+      subeIslemiCalistirVeYenidenAc(()=> faturaSubesiniAta(f.faturaKey, null));
     });
   }
 
@@ -1187,20 +1332,14 @@ function faturaDetayModalAc(key){
   // olarak işaretle" ve zincir bloğundaki "listesinden çıkar" butonları.
   const zincirEkleBtn = overlay.querySelector('#btnZincirVknEkle');
   if(zincirEkleBtn){
-    zincirEkleBtn.addEventListener('click', async ()=>{
-      await zincirVknEkle(f.vkn);
-      await subeAtamasiSonrasiYenidenHesapla();
-      overlay.remove();
-      faturaDetayModalAc(key);
+    zincirEkleBtn.addEventListener('click', ()=>{
+      subeIslemiCalistirVeYenidenAc(()=> zincirVknEkle(f.vkn));
     });
   }
   const zincirCikarBtn = overlay.querySelector('#btnZincirVknCikar');
   if(zincirCikarBtn){
-    zincirCikarBtn.addEventListener('click', async ()=>{
-      await zincirVknCikar(f.vkn);
-      await subeAtamasiSonrasiYenidenHesapla();
-      overlay.remove();
-      faturaDetayModalAc(key);
+    zincirCikarBtn.addEventListener('click', ()=>{
+      subeIslemiCalistirVeYenidenAc(()=> zincirVknCikar(f.vkn));
     });
   }
 
