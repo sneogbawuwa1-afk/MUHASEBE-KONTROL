@@ -209,12 +209,15 @@ async function raporuOlustur(){
   }
 
   await saveRaporToStorage();
-
-  // Ay sonu arşivi: bu raporun ait olduğu dönemi (ay-yıl) belirleyip arşive yaz/güncelle.
-  // Geçmişe-eklenen-Netsis-kaydı kontrolü, arşivleme YAPILMADAN ÖNCEKİ arşiv durumuna göre
-  // hesaplanmalı — yoksa "şimdiki dönem" az önce arşivlendiği için kendi kendini karşılaştırır.
-  state.gecmiseEklenenNetsisKayitlari = gecmiseEklenenNetsisKayitlariBul(state.rapor);
   state.goruntulenenDonemId = null; // yeni rapor her zaman "canlı" (arşiv değil) görünümdür
+
+  // Ay sonu arşivi: aktif dönem (ve bir sonraki ay) onaysız/otomatik arşive yazılır.
+  // Bundan daha uzak (geçmiş veya 2+ ay ileri) dönemlere ait Netsis değişiklikleri
+  // varsa kullanıcıdan onay istenir — bkz. donemGuncellemeAnaliziniYap.
+  const analiz = donemGuncellemeAnaliziniYap(state.rapor);
+  await donemleriTopluArsivle(state.rapor, analiz.otomatikYazilacakDonemler);
+  // Aktif dönem otomatik listede yoksa bile (örn. Netsis kaynağı hiç yoksa) her zaman
+  // yine de arşivlenir — entegratör verisi tek başına da arşivlenebilir olmalı.
   await donemiArsivle(state.rapor);
 
   const topbarSub = document.getElementById('topbarSub');
@@ -228,7 +231,13 @@ async function raporuOlustur(){
   renderGroupTabs();
   renderGroupSections();
   renderDonemPaneli();
-  renderGecmiseEklenenUyari();
+
+  // Geçmiş/uzak dönemlere ait değişiklikler varsa onay modalını göster — bu modal
+  // kullanıcı "Tümünü Göz Ardı Et ve Uygula"ya basana kadar açık kalır.
+  if(analiz.onayBekleyenDonemler.length){
+    donemOnayModaliAc(analiz.onayBekleyenDonemler);
+  }
+
   if(window.innerWidth <= 960) sidebarKapat(); // yalnızca mobilde rapor oluşturunca paneli kapat
 }
 
@@ -289,6 +298,14 @@ function raporEksikAlanlariTamamla(rapor){
     if(!f.faturaKey) f.faturaKey = matchKey(f.vkn, f.faturaNo);
     if(f.manuelDurum === undefined) f.manuelDurum = null;
     if(f.not === undefined) f.not = '';
+    // faturaTarihi, Firebase/IndexedDB'den ISO STRING olarak dönebilir (Date nesneleri
+    // JSON-güvenli depolama için stringe çevriliyor, bkz. js/09-firebase.js derinDateTemizle).
+    // Burada tekrar gerçek bir Date nesnesine çeviriyoruz ki tarih sütunu, sıralama ve
+    // dönem filtreleme mantığı (hepsi new Date(...) kullanıyor) tutarlı çalışsın.
+    if(f.faturaTarihi && typeof f.faturaTarihi==='string'){
+      const d = new Date(f.faturaTarihi);
+      if(!isNaN(d)) f.faturaTarihi = d;
+    }
   });
   return rapor;
 }
@@ -362,13 +379,11 @@ async function tumVeriyiYenidenYukleVeCiz(){
     state.rapor = raporEksikAlanlariTamamla(kayitliRapor.rapor);
     const zaman = new Date(kayitliRapor.kayitZamani).toLocaleString('tr-TR');
     topbarSub.textContent = `Kayıtlı rapor · Son oluşturma: ${zaman} · ${state.rapor.faturalar.length} kayıt`;
-    state.gecmiseEklenenNetsisKayitlari = gecmiseEklenenNetsisKayitlariBul(state.rapor);
   }
   renderKPIs();
   renderGroupTabs();
   renderGroupSections();
   renderDonemPaneli();
-  renderGecmiseEklenenUyari();
 }
 
 async function initApp(){

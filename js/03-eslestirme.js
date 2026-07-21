@@ -256,7 +256,7 @@ function computeRapor(kaynaklar, manuel, subeAtamalari){
     kesan: tumSatirlar.filter(f=>f.subeGrup==='kesan'),
     bayrampasa: tumSatirlar.filter(f=>f.subeGrup==='bayrampasa'),
     kontrol: tumSatirlar.filter(f=>f.subeGrup==='kontrol'),
-    iadeKesilecek: tumSatirlar.filter(f=> f.manuelDurum==='iade_kesilecek'),
+    notlu: tumSatirlar.filter(f=> f.not && f.not.trim()),
   };
 
   return {faturalar: tumSatirlar, kpi, gruplar, efesKesanMi, yetimManuel, normallesenManuelIsaretler};

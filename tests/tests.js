@@ -9,13 +9,14 @@ const kod02 = fs.readFileSync(path.join(__dirname, '..', 'js', '02-veri-yukleme.
 const kod03 = fs.readFileSync(path.join(__dirname, '..', 'js', '03-eslestirme.js'), 'utf8');
 const kod07 = fs.readFileSync(path.join(__dirname, '..', 'js', '07-donem-arsivi.js'), 'utf8');
 const kod08 = fs.readFileSync(path.join(__dirname, '..', 'js', '08-senkron-katmani.js'), 'utf8');
+const kod09 = fs.readFileSync(path.join(__dirname, '..', 'js', '09-firebase.js'), 'utf8');
 
 const sahteDocument = {
   getElementById: ()=> null,
   createElement: ()=> ({ classList:{add(){}}, style:{}, appendChild(){}, addEventListener(){}, querySelector(){ return null; } }),
   body: { prepend(){} },
 };
-const sahteWindow = { indexedDB: {} };
+const sahteWindow = { indexedDB: {}, localStorage: { getItem:()=>null, setItem(){}, removeItem(){} } };
 
 const context = { document: sahteDocument, window: sahteWindow, indexedDB: {} };
 const vm = require('vm');
@@ -25,13 +26,16 @@ vm.runInContext(kod02, context);
 vm.runInContext(kod03, context);
 vm.runInContext(kod07, context);
 vm.runInContext(kod08, context);
+vm.runInContext(kod09, context);
 
 const {
   normVKN, parseFaturaNo, digitsYakinMi, faturaNoYakinMi, matchKey, toNumber,
   belirleSube, computeRapor, excelDateToJS,
   donemIdUret, donemEtiketUret, raporunAitOlduguDonem, netsisAnahtarKumesiCikar,
   donemKarsilastirmaHesapla, gunBazliBosluklariHesapla, donemToplamOzetiHesapla,
-  gecmiseEklenenNetsisKayitlariBul, vknSubesiAtanmisMi,
+  vknSubesiAtanmisMi, donemFarkiAySayisi, donemOtomatikYazilabilirMi,
+  donemGuncellemeAnaliziniYap, donemOnayiUygula, donemeAitSatirlariFiltrele,
+  derinDateTemizle,
 } = context;
 
 // NOT: `const state = {...}` gibi top-level bindingler Node'un vm.runInContext'inde
@@ -48,19 +52,46 @@ function stateSubeAtamalariniAyarla(girdiler){ // girdiler: [[vkn, grup], ...] d
 }
 
 let gecen = 0, toplam = 0;
+let asyncTestZinciri = Promise.resolve(); // async testler SIRALI çalışsın diye zincirleniyor
+let zincirdeBekleyenVar = false;
 function test(ad, fn){
   toplam++;
-  try{
-    fn();
+  // ÖNEMLİ: fn()'i burada HEMEN çağırmıyoruz. Bir önceki async testin zincirdeki işi
+  // tamamlanmadan bu testin fn()'i çağrılırsa, ikisi aynı anda state.donemler gibi paylaşılan
+  // state'i değiştirebilir (senkron kısımları iç içe girebilir). Bunun yerine fn'i zincire
+  // bir adım olarak ekliyoruz: zincir bu noktaya geldiğinde fn() çağrılır, sonucu senkron mu
+  // async mı diye bakılır, ona göre işlenir. Testler tanımlandığı SIRAYLA çalışmaya devam eder.
+  asyncTestZinciri = asyncTestZinciri.then(()=>{
+    let sonuc;
+    try{
+      sonuc = fn();
+    }catch(err){
+      console.log(`FAIL  ${ad}`);
+      console.log(`      ${err.message}`);
+      return;
+    }
+    if(sonuc && typeof sonuc.then === 'function'){
+      return sonuc.then(()=>{
+        gecen++;
+        console.log(`  OK  ${ad}`);
+      }).catch((err)=>{
+        console.log(`FAIL  ${ad}`);
+        console.log(`      ${err.message}`);
+      });
+    }
     gecen++;
     console.log(`  OK  ${ad}`);
-  }catch(err){
-    console.log(`FAIL  ${ad}`);
-    console.log(`      ${err.message}`);
-  }
+  });
 }
 
-console.log('normVKN');
+// console.log çağrılarını da (bölüm başlıkları için) zincire dahil ediyoruz — aksi halde
+// tüm başlıklar en başta, tüm test sonuçları en sonda basılır (çünkü testler artık
+// microtask zincirinde çalışıyor). Bu fonksiyon çıktı sırasının doğru olmasını sağlar.
+function baslik(metin){
+  asyncTestZinciri = asyncTestZinciri.then(()=> console.log(metin));
+}
+
+baslik('normVKN');
 test('baştaki sıfırları temizler', ()=>{
   assert.strictEqual(normVKN('0012345678'), '12345678');
 });
@@ -75,7 +106,7 @@ test('tamamı sıfırsa "0" döner', ()=>{
   assert.strictEqual(normVKN('000'), '0');
 });
 
-console.log('\nparseFaturaNo');
+baslik('\nparseFaturaNo');
 test('standart ES + rakam formatını ayrıştırır', ()=>{
   const r = parseFaturaNo('ES22026000020732');
   assert.strictEqual(r.prefix, 'ES');
@@ -91,7 +122,7 @@ test('uymayan formatta ayristirilamadi=true döner', ()=>{
   assert.strictEqual(r.ayristirilamadi, true);
 });
 
-console.log('\ndigitsYakinMi (tek haneli sıfır kayması toleransı)');
+baslik('\ndigitsYakinMi (tek haneli sıfır kayması toleransı)');
 test('aynı rakamlar true döner', ()=>{
   assert.strictEqual(digitsYakinMi('020732', '020732'), true);
 });
@@ -112,7 +143,7 @@ test('boş ve tek karakter sınır durumu', ()=>{
   assert.strictEqual(digitsYakinMi('', '5'), false);
 });
 
-console.log('\nfaturaNoYakinMi');
+baslik('\nfaturaNoYakinMi');
 test('prefix farklıysa false döner', ()=>{
   assert.strictEqual(faturaNoYakinMi('ES2026123', 'FA2026123'), false);
 });
@@ -120,14 +151,14 @@ test('prefix aynı, rakamlar sıfır kaymasıyla yakınsa true döner', ()=>{
   assert.strictEqual(faturaNoYakinMi('ES2026000020732', 'ES202600020732'), true);
 });
 
-console.log('\nmatchKey');
+baslik('\nmatchKey');
 test('vkn ve fatura no birlikte anahtar üretir', ()=>{
   const k1 = matchKey('3250032635', 'ES22026000020732');
   const k2 = matchKey('03250032635', 'es22026000020732');
   assert.strictEqual(k1, k2);
 });
 
-console.log('\ntoNumber');
+baslik('\ntoNumber');
 test('virgüllü ondalık TL formatını doğru çevirir', ()=>{
   assert.strictEqual(toNumber('32.500,00'), 32500);
 });
@@ -152,7 +183,7 @@ test('zaten sayı olan değeri aynen döndürür', ()=>{
   assert.strictEqual(toNumber(1589.23), 1589.23);
 });
 
-console.log('\nexcelDateToJS (tarih güvenilirliği)');
+baslik('\nexcelDateToJS (tarih güvenilirliği)');
 test('YYYYMMDD (QNB) formatını doğru çevirir', ()=>{
   const d = excelDateToJS('20260630');
   assert.strictEqual(d.getFullYear(), 2026);
@@ -178,7 +209,7 @@ test('boş değer null döner', ()=>{
   assert.strictEqual(excelDateToJS(null), null);
 });
 
-console.log('\nbelirleSube (Efes VKN özel mantığı)');
+baslik('\nbelirleSube (Efes VKN özel mantığı)');
 test('Efes VKN + ekstre yoksa kontrol grubuna düşer', ()=>{
   const r = belirleSube('3250032635', 'ES123', null, new Set(), new Set(), new Set());
   assert.strictEqual(r.grup, 'kontrol');
@@ -193,7 +224,7 @@ test('hiçbir master ve Efes eşleşmesi yoksa kontrol grubuna düşer', ()=>{
   assert.strictEqual(r.grup, 'kontrol');
 });
 
-console.log('\nbelirleSube — manuel VKN şube ataması (kalıcı override)');
+baslik('\nbelirleSube — manuel VKN şube ataması (kalıcı override)');
 test('manuel atama varsa Efes/master mantığından ÖNCE uygulanır', ()=>{
   const manuelAtama = new Map([[normVKN('9998887776'), 'bayrampasa']]);
   const r = belirleSube('9998887776', 'ES1', null, new Set(), new Set(), new Set(), manuelAtama);
@@ -210,7 +241,7 @@ test('manuel atama parametresi verilmezse (undefined) eski davranış korunur', 
   assert.strictEqual(r.grup, 'kontrol');
 });
 
-console.log('\nvknSubesiAtanmisMi (state.subeAtamalari okuma)');
+baslik('\nvknSubesiAtanmisMi (state.subeAtamalari okuma)');
 test('atanmış VKN için doğru grup döner', ()=>{
   stateSubeAtamalariniAyarla([[normVKN('9998887776'), 'bayrampasa']]);
   assert.strictEqual(vknSubesiAtanmisMi('9998887776'), 'bayrampasa');
@@ -224,7 +255,7 @@ test('VKN normalize edilerek (baştaki sıfırlar temizlenerek) aranır', ()=>{
   assert.strictEqual(vknSubesiAtanmisMi('9998887776'), 'kesan');
 });
 
-console.log('\ncomputeRapor — manuel şube ataması entegrasyonu');
+baslik('\ncomputeRapor — manuel şube ataması entegrasyonu');
 const kontrolGrubuKaynaklari = {
   efaturaQnb: { rows: [
     {'GÖNDEREN VKN/TCKN':'9998887776','FATURA NO':'GKU2026000000530','FATURA TARİHİ':'30.06.2026','TUTAR':'4.065,25','GÖNDEREN UNVAN/AD SOYAD':'ALKAR DAĞITIM','DURUM':'Onaylandı'},
@@ -251,7 +282,7 @@ test('computeRapor üçüncü parametre olarak plain object da kabul eder (Index
   assert.strictEqual(f.subeGrup, 'kesan');
 });
 
-console.log('\ncomputeRapor + manuel durum işaretleme');
+baslik('\ncomputeRapor + manuel durum işaretleme');
 const ortakKaynaklar = {
   efaturaQnb: { rows: [
     {'GÖNDEREN VKN/TCKN':'3250032635','FATURA NO':'ES22026000020732','FATURA TARİHİ':'30.06.2026','TUTAR':'32.500,00','GÖNDEREN UNVAN/AD SOYAD':'EFES PAZARLAMA','DURUM':'Onaylandı'},
@@ -279,7 +310,7 @@ test('"eslesti" manuel işaretlenince gerçek durum ve KPI güncellenir', ()=>{
   assert.strictEqual(rapor.kpi.islenmemis, 1);
 });
 
-test('"iade_kesilecek" manuel işaretlenince eşleşti sayılır ve iadeKesilecek grubuna düşer', ()=>{
+test('"iade_kesilecek" manuel işaretlenince eşleşti sayılır, kpi.iadeKesilecek ve gruplar.notlu güncellenir', ()=>{
   const manuel = {};
   manuel[anahtar2] = {durum:'iade_kesilecek', not:'KEF2026 nolu fatura ile iade edildi', notGuncellemeZamani: new Date().toISOString()};
   const rapor = computeRapor(ortakKaynaklar, manuel);
@@ -288,7 +319,20 @@ test('"iade_kesilecek" manuel işaretlenince eşleşti sayılır ve iadeKesilece
   assert.strictEqual(f.manuelDurum, 'iade_kesilecek');
   assert.strictEqual(f.not, 'KEF2026 nolu fatura ile iade edildi');
   assert.strictEqual(rapor.kpi.eslesti, 1);
-  assert.strictEqual(rapor.gruplar.iadeKesilecek.length, 1);
+  assert.strictEqual(rapor.kpi.iadeKesilecek, 1); // istatistik alanı korunuyor
+  assert.strictEqual(rapor.gruplar.notlu.length, 1); // artık ayrı "iade" grubu yok, genel "notlu" grubunda
+  assert.strictEqual(rapor.gruplar.notlu[0].faturaKey, anahtar2);
+});
+
+test('sadece not eklenmiş (manuel durumu olmayan) fatura da gruplar.notlu\'ya düşer', ()=>{
+  const manuel = {};
+  manuel[anahtar1] = {durum:null, not:'Muhasebeciye sorulacak', notGuncellemeZamani: new Date().toISOString()};
+  const rapor = computeRapor(ortakKaynaklar, manuel);
+  const f = rapor.faturalar.find(x=> x.faturaKey===anahtar1);
+  assert.strictEqual(f.manuelDurum, null); // manuel DURUM işareti yok, sadece not var
+  assert.strictEqual(f.not, 'Muhasebeciye sorulacak');
+  assert.strictEqual(rapor.gruplar.notlu.length, 1);
+  assert.strictEqual(rapor.gruplar.notlu[0].faturaKey, anahtar1);
 });
 
 test('yetim manuel işaret: karşılığı olmayan key yetimManuel içinde raporlanır', ()=>{
@@ -306,7 +350,7 @@ test('geçerli manuel işaret yetim olarak raporlanmaz', ()=>{
   assert.strictEqual(rapor.yetimManuel.length, 0);
 });
 
-console.log('\nmanuel "eslesti" normalleşmesi (Netsis\'te sonradan bulunma)');
+baslik('\nmanuel "eslesti" normalleşmesi (Netsis\'te sonradan bulunma)');
 const netsisSonradanBulunanKaynaklar = {
   efaturaQnb: { rows: [
     {'GÖNDEREN VKN/TCKN':'3250032635','FATURA NO':'ES22026000020732','FATURA TARİHİ':'30.06.2026','TUTAR':'32.500,00','GÖNDEREN UNVAN/AD SOYAD':'EFES PAZARLAMA','DURUM':'Onaylandı'},
@@ -344,7 +388,7 @@ test('"iade_kesilecek" manuel işareti, fatura Netsis\'te bulunsa bile normalle�
   assert.strictEqual(rapor.normallesenManuelIsaretler.length, 0);
 });
 
-console.log('\ntutar farkı (uyumsuzluk) tespiti');
+baslik('\ntutar farkı (uyumsuzluk) tespiti');
 const farkKaynaklari = {
   efaturaLogo: { rows: [
     {'Gönderici VKN':'1112223334','Fatura No':'FA2026000001','Fatura Tarihi':'30.06.2026','Toplam Tutar':'1.000,00','KDV Toplamı':'180,00','Gönderici Adı':'TEST A','Durum':'Onaylandı'},
@@ -363,7 +407,7 @@ test('tutar tutmayan fatura "fark" durumuna düşer ve farkDetay taşır', ()=>{
   assert.strictEqual(f.farkDetay.netsisTutar, 950);
 });
 
-console.log('\ndonemIdUret / donemEtiketUret');
+baslik('\ndonemIdUret / donemEtiketUret');
 test('yıl-ay doğru formatta üretilir (0 tabanlı ay girdisi)', ()=>{
   assert.strictEqual(donemIdUret(2026, 5), '2026-06'); // Haziran = ay index 5
   assert.strictEqual(donemIdUret(2026, 0), '2026-01');
@@ -373,7 +417,7 @@ test('etiket Türkçe ay adıyla üretilir', ()=>{
   assert.strictEqual(donemEtiketUret(null), '—');
 });
 
-console.log('\nraporunAitOlduguDonem');
+baslik('\nraporunAitOlduguDonem');
 test('entegratör satırlarının çoğunluk ay-yılını bulur', ()=>{
   const rapor = computeRapor(ortakKaynaklar, {}); // iki satır da 30.06.2026
   assert.strictEqual(raporunAitOlduguDonem(rapor), '2026-06');
@@ -382,7 +426,7 @@ test('entegratör satırı yoksa null döner', ()=>{
   assert.strictEqual(raporunAitOlduguDonem({faturalar:[]}), null);
 });
 
-console.log('\nnetsisAnahtarKumesiCikar');
+baslik('\nnetsisAnahtarKumesiCikar');
 test('eşleşmiş ve sadece-netsis satırlarının anahtarları toplanır', ()=>{
   const rapor = computeRapor(farkKaynaklari, {}); // 1 eşleşen (fark durumunda ama netsisTutar dolu) satır
   const set = netsisAnahtarKumesiCikar(rapor);
@@ -390,7 +434,7 @@ test('eşleşmiş ve sadece-netsis satırlarının anahtarları toplanır', ()=>
   assert.ok(set.has(matchKey('1112223334','FA2026000001')));
 });
 
-console.log('\ndonemKarsilastirmaHesapla');
+baslik('\ndonemKarsilastirmaHesapla');
 test('önceki dönem yoksa farklar null döner', ()=>{
   stateDonemleriniAyarla({ '2026-06': { donemId:'2026-06', ozet:{toplam:10,eslesti:8,islenmemis:1,entegratordeYok:0,fark:1,red:0,kontrol:0,toplamTutar:1000,toplamKdvEnt:180} } });
   const r = donemKarsilastirmaHesapla('2026-06');
@@ -411,7 +455,7 @@ test('iki dönem varsa fark ve eşleşme oranı hesaplanır', ()=>{
   assert.ok(r.eslesmeOraniFarki > 0); // eşleşme oranı iyileşti
 });
 
-console.log('\ngunBazliBosluklariHesapla');
+baslik('\ngunBazliBosluklariHesapla');
 test('entegratörde olup Netsis\'te olmayan gün boşluk olarak raporlanır', ()=>{
   stateDonemleriniAyarla({
     '2026-06': {
@@ -430,7 +474,7 @@ test('entegratörde olup Netsis\'te olmayan gün boşluk olarak raporlanır', ()
   assert.ok(!bosluklar.find(b=> b.gun===11), '11. gün her iki kaynakta da var, boşluk olmamalı');
 });
 
-console.log('\ndonemToplamOzetiHesapla');
+baslik('\ndonemToplamOzetiHesapla');
 test('tutar ve KDV farkı doğru hesaplanır', ()=>{
   stateDonemleriniAyarla({ '2026-06': { donemId:'2026-06', ozet:{toplamTutar:1000, toplamTutarNetsis:950, toplamKdvEnt:180, toplamKdvNetsis:171} } });
   const o = donemToplamOzetiHesapla('2026-06');
@@ -438,50 +482,238 @@ test('tutar ve KDV farkı doğru hesaplanır', ()=>{
   assert.ok(Math.abs(o.kdvFarki - 9) < 0.001);
 });
 
-console.log('\ngecmiseEklenenNetsisKayitlariBul');
-test('arşivlenmiş geçmiş bir aya ait olup o dönem arşivinde olmayan Netsis kaydı tespit edilir', ()=>{
-  // Mayıs ayı arşivlenmiş ama bu Netsis kaydının anahtarı o arşivde YOK — yani sonradan eklenmiş.
-  stateDonemleriniAyarla({
-    '2026-05': { donemId:'2026-05', netsisAnahtarlari: [] },
-  });
-  const rapor = {
-    faturalar: [
-      { yon:'netsis', faturaKey: matchKey('1112223334','FA2026000099'), faturaNo:'FA2026000099', vkn:'1112223334',
-        gonderenUnvan:'TEST A', tutar:500, netsisTutar:500, faturaTarihi: new Date(2026,4,15).toISOString() },
-      { yon:'entegrator', faturaKey: matchKey('1112223334','FA2026000001'), faturaNo:'FA2026000001', vkn:'1112223334',
-        gonderenUnvan:'TEST A', tutar:1000, faturaTarihi: new Date(2026,5,10).toISOString() }, // bu ayın kendi kaydı, atlanır
-    ],
-  };
-  const sonuc = gecmiseEklenenNetsisKayitlariBul(rapor);
-  assert.strictEqual(sonuc.length, 1);
-  assert.strictEqual(sonuc[0].aitOlduguDonemId, '2026-05');
-  assert.strictEqual(sonuc[0].faturaNo, 'FA2026000099');
+baslik('\ndonemFarkiAySayisi');
+test('aynı ay için 0 döner', ()=>{
+  assert.strictEqual(donemFarkiAySayisi('2026-06','2026-06'), 0);
 });
-test('arşivde zaten var olan kayıt için uyarı üretilmez', ()=>{
-  const anahtar = matchKey('1112223334','FA2026000099');
-  stateDonemleriniAyarla({
-    '2026-05': { donemId:'2026-05', netsisAnahtarlari: [anahtar] },
-  });
-  const rapor = {
-    faturalar: [
-      { yon:'netsis', faturaKey: anahtar, faturaNo:'FA2026000099', vkn:'1112223334',
-        gonderenUnvan:'TEST A', tutar:500, netsisTutar:500, faturaTarihi: new Date(2026,4,15).toISOString() },
-    ],
-  };
-  const sonuc = gecmiseEklenenNetsisKayitlariBul(rapor);
-  assert.strictEqual(sonuc.length, 0);
+test('bir sonraki ay için 1 döner', ()=>{
+  assert.strictEqual(donemFarkiAySayisi('2026-06','2026-07'), 1);
 });
-test('hiç arşivlenmemiş geçmiş bir ay için kıyaslama yapılmaz (sessizce atlanır)', ()=>{
-  stateDonemleriniAyarla({}); // hiçbir dönem arşivlenmemiş
-  const rapor = {
-    faturalar: [
-      { yon:'netsis', faturaKey: matchKey('1112223334','FA2026000099'), faturaNo:'FA2026000099', vkn:'1112223334',
-        gonderenUnvan:'TEST A', tutar:500, netsisTutar:500, faturaTarihi: new Date(2026,4,15).toISOString() },
-    ],
-  };
-  const sonuc = gecmiseEklenenNetsisKayitlariBul(rapor);
-  assert.strictEqual(sonuc.length, 0);
+test('bir önceki ay için -1 döner', ()=>{
+  assert.strictEqual(donemFarkiAySayisi('2026-06','2026-05'), -1);
+});
+test('yıl sınırını doğru geçer (Aralık -> Ocak)', ()=>{
+  assert.strictEqual(donemFarkiAySayisi('2025-12','2026-01'), 1);
+});
+test('iki ay ileri için 2 döner', ()=>{
+  assert.strictEqual(donemFarkiAySayisi('2026-06','2026-08'), 2);
 });
 
-console.log(`\n${gecen}/${toplam} test geçti.`);
-process.exit(gecen === toplam ? 0 : 1);
+baslik('\ndonemOtomatikYazilabilirMi (kullanıcı kuralı: aktif ay + 1 ay onaysız, gerisi onaylı)');
+test('aktif dönemin kendisi otomatik yazılabilir', ()=>{
+  assert.strictEqual(donemOtomatikYazilabilirMi('2026-06','2026-06'), true);
+});
+test('aktif dönemden bir sonraki ay otomatik yazılabilir', ()=>{
+  assert.strictEqual(donemOtomatikYazilabilirMi('2026-06','2026-07'), true);
+});
+test('aktif dönemden bir önceki ay OTOMATİK YAZILAMAZ (onay gerekir)', ()=>{
+  assert.strictEqual(donemOtomatikYazilabilirMi('2026-06','2026-05'), false);
+});
+test('aktif dönemden iki ay sonrası OTOMATİK YAZILAMAZ (onay gerekir)', ()=>{
+  assert.strictEqual(donemOtomatikYazilabilirMi('2026-06','2026-08'), false);
+});
+test('aktif dönem belirlenemiyorsa (null) engelleme yapılmaz', ()=>{
+  assert.strictEqual(donemOtomatikYazilabilirMi(null,'2026-05'), true);
+});
+
+baslik('\ndonemeAitSatirlariFiltrele');
+test('sadece verilen aya ait faturaTarihi olan satırlar döner', ()=>{
+  const rapor = {faturalar:[
+    {faturaKey:'a', faturaTarihi:new Date(2026,5,10).toISOString()},
+    {faturaKey:'b', faturaTarihi:new Date(2026,6,1).toISOString()},
+    {faturaKey:'c', faturaTarihi:null},
+  ]};
+  const sonuc = donemeAitSatirlariFiltrele(rapor, '2026-06');
+  assert.strictEqual(sonuc.length, 1);
+  assert.strictEqual(sonuc[0].faturaKey, 'a');
+});
+
+baslik('\ndonemGuncellemeAnaliziniYap — çok-dönemli Netsis analizi');
+test('aktif dönem (Haziran) ve bir sonraki ay (Temmuz) otomatik listede, onay istenmez', ()=>{
+  stateDonemleriniAyarla({}); // hiçbir dönem arşivlenmemiş henüz
+  const rapor = {faturalar:[
+    // Aktif dönemi Haziran yapmak için çoğunluk entegratör satırı Haziran'da olmalı
+    {yon:'entegrator', faturaKey:'e1', faturaTarihi:new Date(2026,5,10).toISOString(), netsisTutar:100},
+    {yon:'entegrator', faturaKey:'e2', faturaTarihi:new Date(2026,5,12).toISOString(), netsisTutar:null},
+    {yon:'netsis', faturaKey:'n1', faturaTarihi:new Date(2026,6,5).toISOString()}, // Temmuz - sadece netsis'te
+  ]};
+  const analiz = donemGuncellemeAnaliziniYap(rapor);
+  assert.strictEqual(analiz.aktifDonemId, '2026-06');
+  assert.ok(analiz.otomatikYazilacakDonemler.includes('2026-06'));
+  assert.ok(analiz.otomatikYazilacakDonemler.includes('2026-07'));
+  assert.strictEqual(analiz.onayBekleyenDonemler.length, 0);
+});
+
+test('aktif dönemden önceki bir ay (Mayıs), zaten arşivlenmiş ve fark varsa onay bekler', ()=>{
+  const eskiAnahtar = matchKey('1112223334','ESKI001');
+  stateDonemleriniAyarla({
+    '2026-05': {
+      donemId:'2026-05',
+      netsisAnahtarlari: [eskiAnahtar],
+      rapor: {faturalar:[
+        {faturaKey:eskiAnahtar, faturaNo:'ESKI001', vkn:'1112223334', gonderenUnvan:'ESKİ FİRMA', tutar:750, netsisTutar:750, faturaTarihi:new Date(2026,4,20).toISOString(), yon:'entegrator'},
+      ]},
+    },
+  });
+  const yeniAnahtar = matchKey('1112223334','YENI002');
+  const rapor = {faturalar:[
+    {yon:'entegrator', faturaKey:'e1', faturaTarihi:new Date(2026,5,10).toISOString(), netsisTutar:100}, // aktif dönem Haziran
+    // Mayıs'a ait YENİ bir Netsis kaydı — eski arşivde YOKTU
+    {yon:'netsis', faturaKey:yeniAnahtar, faturaNo:'YENI002', vkn:'1112223334', gonderenUnvan:'YENİ FİRMA', tutar:300, netsisTutar:300, faturaTarihi:new Date(2026,4,5).toISOString()},
+    // Mayıs'ın eski kaydı bu yeni dosyada YOK (eksik)
+  ]};
+  const analiz = donemGuncellemeAnaliziniYap(rapor);
+  assert.strictEqual(analiz.onayBekleyenDonemler.length, 1);
+  const mayisAnaliz = analiz.onayBekleyenDonemler[0];
+  assert.strictEqual(mayisAnaliz.donemId, '2026-05');
+  assert.strictEqual(mayisAnaliz.yeniVeyaDegisenSatirlar.length, 1);
+  assert.strictEqual(mayisAnaliz.yeniVeyaDegisenSatirlar[0].faturaKey, yeniAnahtar);
+  assert.strictEqual(mayisAnaliz.eksikSatirlar.length, 1);
+  assert.strictEqual(mayisAnaliz.eksikSatirlar[0].faturaKey, eskiAnahtar);
+});
+
+test('aktif dönemden 2+ ay sonrası (Ağustos) da onay bekler', ()=>{
+  stateDonemleriniAyarla({
+    '2026-08': { donemId:'2026-08', netsisAnahtarlari: [] },
+  });
+  const rapor = {faturalar:[
+    {yon:'entegrator', faturaKey:'e1', faturaTarihi:new Date(2026,5,10).toISOString(), netsisTutar:100}, // aktif Haziran
+    {yon:'netsis', faturaKey:'n-agustos', faturaTarihi:new Date(2026,7,1).toISOString()}, // Ağustos
+  ]};
+  const analiz = donemGuncellemeAnaliziniYap(rapor);
+  assert.ok(!analiz.otomatikYazilacakDonemler.includes('2026-08'));
+  const agustosAnaliz = analiz.onayBekleyenDonemler.find(d=> d.donemId==='2026-08');
+  assert.ok(agustosAnaliz, 'Ağustos onay bekleyenler arasında olmalı');
+});
+
+test('geçmiş ay hiç arşivlenmemişse (ilk kez) otomatik yazılır, onay istenmez', ()=>{
+  stateDonemleriniAyarla({}); // Mart hiç arşivlenmemiş
+  const rapor = {faturalar:[
+    {yon:'entegrator', faturaKey:'e1', faturaTarihi:new Date(2026,5,10).toISOString(), netsisTutar:100}, // aktif Haziran
+    {yon:'netsis', faturaKey:'n-mart', faturaTarihi:new Date(2026,2,1).toISOString()}, // Mart - hiç arşiv yok
+  ]};
+  const analiz = donemGuncellemeAnaliziniYap(rapor);
+  assert.ok(analiz.otomatikYazilacakDonemler.includes('2026-03'));
+  assert.ok(!analiz.onayBekleyenDonemler.find(d=> d.donemId==='2026-03'));
+});
+
+test('farksız geçmiş dönem (arşivle birebir aynı) onay listesine hiç girmez', ()=>{
+  const anahtar = matchKey('1112223334','AYNI001');
+  stateDonemleriniAyarla({
+    '2026-05': {
+      donemId:'2026-05', netsisAnahtarlari: [anahtar],
+      rapor: {faturalar:[{faturaKey:anahtar, faturaTarihi:new Date(2026,4,10).toISOString()}]},
+    },
+  });
+  const rapor = {faturalar:[
+    {yon:'entegrator', faturaKey:'e1', faturaTarihi:new Date(2026,5,10).toISOString(), netsisTutar:100}, // aktif Haziran
+    {yon:'netsis', faturaKey:anahtar, faturaTarihi:new Date(2026,4,10).toISOString()}, // Mayıs, arşivle birebir aynı
+  ]};
+  const analiz = donemGuncellemeAnaliziniYap(rapor);
+  assert.strictEqual(analiz.onayBekleyenDonemler.length, 0);
+});
+
+baslik('\ndonemOnayiUygula');
+test('işaretlenen (çıkarılacak) eksik satır arşivden silinir, işaretlenmeyen kalır', async ()=>{
+  const eskiAnahtar1 = matchKey('1112223334','ESKI001');
+  const eskiAnahtar2 = matchKey('1112223334','ESKI002');
+  stateDonemleriniAyarla({
+    '2026-05': {
+      donemId:'2026-05',
+      netsisAnahtarlari: [eskiAnahtar1, eskiAnahtar2],
+      rapor: {faturalar:[
+        {faturaKey:eskiAnahtar1, faturaNo:'ESKI001', faturaTarihi:new Date(2026,4,10).toISOString(), yon:'entegrator', tutar:100, netsisTutar:100},
+        {faturaKey:eskiAnahtar2, faturaNo:'ESKI002', faturaTarihi:new Date(2026,4,11).toISOString(), yon:'entegrator', tutar:200, netsisTutar:200},
+      ], kpi:{}, gruplar:{}},
+    },
+  });
+  const onayBekleyenDonem = {
+    donemId: '2026-05',
+    yeniVeyaDegisenSatirlar: [],
+    eksikSatirlar: [
+      {faturaKey:eskiAnahtar1, faturaNo:'ESKI001'},
+      {faturaKey:eskiAnahtar2, faturaNo:'ESKI002'},
+    ],
+  };
+  // Kullanıcı sadece eskiAnahtar1'i "elle çıkar" olarak işaretledi; eskiAnahtar2 işaretlenmedi (kalsın).
+  await donemOnayiUygula(onayBekleyenDonem, new Set([eskiAnahtar1]));
+
+  const guncelArsivJson = await vm.runInContext('JSON.stringify(state.donemler["2026-05"].rapor.faturalar)', context);
+  const guncelSatirlar = JSON.parse(guncelArsivJson);
+  const kalanAnahtarlar = guncelSatirlar.map(f=> f.faturaKey);
+  assert.ok(!kalanAnahtarlar.includes(eskiAnahtar1), 'işaretlenen (çıkarılacak) satır arşivde OLMAMALI');
+  assert.ok(kalanAnahtarlar.includes(eskiAnahtar2), 'işaretlenmeyen satır arşivde KALMALI');
+});
+
+test('yeni/değişen satırlar onaya bakılmaksızın her zaman eklenir', async ()=>{
+  stateDonemleriniAyarla({
+    '2026-05': {
+      donemId:'2026-05',
+      netsisAnahtarlari: [],
+      rapor: {faturalar:[], kpi:{}, gruplar:{}},
+    },
+  });
+  const yeniAnahtar = matchKey('1112223334','YENI099');
+  const onayBekleyenDonem = {
+    donemId: '2026-05',
+    yeniVeyaDegisenSatirlar: [
+      {faturaKey:yeniAnahtar, faturaNo:'YENI099', faturaTarihi:new Date(2026,4,20).toISOString(), yon:'entegrator', tutar:400, netsisTutar:400},
+    ],
+    eksikSatirlar: [],
+  };
+  await donemOnayiUygula(onayBekleyenDonem, new Set());
+  const guncelArsivJson = await vm.runInContext('JSON.stringify(state.donemler["2026-05"].rapor.faturalar)', context);
+  const guncelSatirlar = JSON.parse(guncelArsivJson);
+  assert.ok(guncelSatirlar.map(f=> f.faturaKey).includes(yeniAnahtar));
+});
+
+baslik('\nderinDateTemizle (RTDB Date nesnesi uyumsuzluğu regresyon testi)');
+test('gerçek Date nesnesi içeren obje ISO string\'e çevrilir (RTDB Date kabul etmez)', ()=>{
+  const girdi = {faturaTarihi: new Date(2026,5,15), tutar: 100};
+  const cikti = derinDateTemizle(girdi);
+  assert.strictEqual(typeof cikti.faturaTarihi, 'string');
+  assert.strictEqual(cikti.faturaTarihi, new Date(2026,5,15).toISOString());
+});
+test('derin iç içe (nested) Date nesneleri de temizlenir (rapor.faturalar[].faturaTarihi senaryosu)', ()=>{
+  const girdi = {
+    rapor: {
+      faturalar: [
+        {faturaKey:'a', faturaTarihi: new Date(2026,5,10)},
+        {faturaKey:'b', faturaTarihi: new Date(2026,5,11)},
+      ],
+    },
+  };
+  const cikti = derinDateTemizle(girdi);
+  assert.strictEqual(typeof cikti.rapor.faturalar[0].faturaTarihi, 'string');
+  assert.strictEqual(typeof cikti.rapor.faturalar[1].faturaTarihi, 'string');
+});
+test('undefined girdi için null döner (RTDB undefined kabul etmez)', ()=>{
+  assert.strictEqual(derinDateTemizle(undefined), null);
+});
+test('zaten string olan tarihlere dokunmaz', ()=>{
+  const girdi = {faturaTarihi: '2026-06-15T00:00:00.000Z'};
+  const cikti = derinDateTemizle(girdi);
+  assert.strictEqual(cikti.faturaTarihi, '2026-06-15T00:00:00.000Z');
+});
+
+baslik('\nraporEksikAlanlariTamamla (string tarihi tekrar Date\'e çevirme regresyon testi)');
+test('string faturaTarihi, gerçek Date nesnesine geri çevrilir', ()=>{
+  const vm2 = require('vm');
+  const ctx2 = { document: {...sahteDocument, addEventListener(){}}, window: sahteWindow, console };
+  vm2.createContext(ctx2);
+  vm2.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', '05-uygulama.js'), 'utf8'), ctx2);
+  const rapor = {faturalar:[{faturaKey:'x', faturaTarihi:'2026-06-15T00:00:00.000Z'}]};
+  const sonuc = ctx2.raporEksikAlanlariTamamla(rapor);
+  const faturaTarihi = sonuc.faturalar[0].faturaTarihi;
+  // NOT: instanceof Date, farklı VM context'lerinden (realm) gelen Date nesneleri için
+  // false dönebilir (her realm kendi Date sınıfına sahiptir) — bu yüzden cross-realm
+  // güvenli olan Object.prototype.toString.call() ile kontrol ediyoruz.
+  assert.strictEqual(Object.prototype.toString.call(faturaTarihi), '[object Date]', 'faturaTarihi gerçek Date nesnesi olmalı');
+  assert.strictEqual(faturaTarihi.getFullYear(), 2026);
+  assert.strictEqual(faturaTarihi.getMonth(), 5); // Haziran
+});
+
+asyncTestZinciri.then(()=>{
+  console.log(`\n${gecen}/${toplam} test geçti.`);
+  process.exit(gecen === toplam ? 0 : 1);
+});

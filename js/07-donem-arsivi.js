@@ -73,39 +73,69 @@ async function donemleriKaydet(){
   }
 }
 
-// Ana giriş noktası: her raporuOlustur() sonrasında çağrılır. O anki raporu, ait
-// olduğu döneme (ay-yıl) göre arşive yazar/günceller. Dönüş değeri: {donemId, oncekiDonemVarMi}
-async function donemiArsivle(rapor){
-  const donemId = raporunAitOlduguDonem(rapor);
-  if(!donemId) return null;
+// Bir dönem ID'sine ait olan satırları rapor içinden filtreler: entegratör satırları
+// için faturaTarihi o aya denk gelenler + o entegratör satırlarının eşleştiği Netsis
+// karşılıkları + sadece-Netsis'te-bulunan (yon:'netsis') satırlardan o aya ait olanlar.
+function donemeAitSatirlariFiltrele(rapor, donemId){
+  const [yil, ay] = donemId.split('-').map(Number);
+  const ayIndex = ay-1;
+  return (rapor.faturalar||[]).filter(f=>{
+    if(!f.faturaTarihi) return false;
+    const t = new Date(f.faturaTarihi);
+    if(isNaN(t)) return false;
+    return t.getFullYear()===yil && t.getMonth()===ayIndex;
+  });
+}
 
-  const kpi = rapor.kpi || {};
-  const toplamTutar = (rapor.faturalar||[])
-    .filter(f=> f.yon==='entegrator')
-    .reduce((a,f)=> a + (f.tutar||0), 0);
-  const toplamKdvEnt = (rapor.faturalar||[])
-    .filter(f=> f.yon==='entegrator' && f.kdv!=null)
-    .reduce((a,f)=> a + (f.kdv||0), 0);
-  const toplamKdvNetsis = (rapor.faturalar||[])
-    .filter(f=> f.netsisKdv!=null)
-    .reduce((a,f)=> a + (f.netsisKdv||0), 0);
-  const toplamTutarNetsis = (rapor.faturalar||[])
-    .filter(f=> f.netsisTutar!=null)
-    .reduce((a,f)=> a + (f.netsisTutar||0), 0);
+// Tek bir dönemi (donemId), rapor içindeki O DÖNEME AİT satırlarla arşive yazar/günceller.
+// Önceki sürümden farkı: artık TÜM raporu değil, sadece ilgili döneme denk gelen
+// satırları saklar — bu sayede çok-aylı bir Netsis dosyası doğru şekilde birden fazla
+// döneme dağıtılabilir (bkz. donemleriTopluArsivle).
+async function tekDonemiArsivle(rapor, donemId){
+  const donemSatirlari = donemeAitSatirlariFiltrele(rapor, donemId);
+  if(!donemSatirlari.length) return;
+
+  const toplam = donemSatirlari.filter(f=> f.yon==='entegrator').length;
+  const eslesti = donemSatirlari.filter(f=> f.durum==='eslesti').length;
+  const islenmemis = donemSatirlari.filter(f=> f.durum==='islenmemis').length;
+  const entegratordeYok = donemSatirlari.filter(f=> f.yon==='netsis').length;
+  const fark = donemSatirlari.filter(f=> f.durum==='fark').length;
+  const red = donemSatirlari.filter(f=> f.durum==='red').length;
+  const kontrol = donemSatirlari.filter(f=> f.subeGrup==='kontrol').length;
+  const toplamTutar = donemSatirlari.filter(f=> f.yon==='entegrator').reduce((a,f)=> a+(f.tutar||0), 0);
+  const toplamKdvEnt = donemSatirlari.filter(f=> f.yon==='entegrator' && f.kdv!=null).reduce((a,f)=> a+(f.kdv||0), 0);
+  const toplamKdvNetsis = donemSatirlari.filter(f=> f.netsisKdv!=null).reduce((a,f)=> a+(f.netsisKdv||0), 0);
+  const toplamTutarNetsis = donemSatirlari.filter(f=> f.netsisTutar!=null).reduce((a,f)=> a+(f.netsisTutar||0), 0);
 
   state.donemler[donemId] = {
     donemId,
     olusturmaZamani: new Date().toISOString(),
-    rapor, // tam rapor saklanıyor ki geçmiş dönem tekrar açılıp tablo görüntülenebilsin
-    netsisAnahtarlari: Array.from(netsisAnahtarKumesiCikar(rapor)),
-    ozet: {
-      toplam: kpi.toplam||0, eslesti: kpi.eslesti||0, islenmemis: kpi.islenmemis||0,
-      entegratordeYok: kpi.entegratordeYok||0, fark: kpi.fark||0, red: kpi.red||0,
-      kontrol: kpi.kontrol||0, toplamTutar, toplamTutarNetsis, toplamKdvEnt, toplamKdvNetsis,
-    },
+    rapor: {faturalar: donemSatirlari, kpi: rapor.kpi, gruplar: rapor.gruplar, efesKesanMi: rapor.efesKesanMi},
+    netsisAnahtarlari: Array.from(netsisAnahtarKumesiCikar({faturalar: donemSatirlari})),
+    ozet: {toplam, eslesti, islenmemis, entegratordeYok, fark, red, kontrol, toplamTutar, toplamTutarNetsis, toplamKdvEnt, toplamKdvNetsis},
   };
+}
+
+// Ana giriş noktası: her raporuOlustur() sonrasında çağrılır. Raporun ait olduğu ana
+// dönem (aktif çalışılan ay) HER ZAMAN arşivlenir/güncellenir — geriye dönük kontrol
+// SADECE Netsis kaynaklı diğer (uzak/geçmiş) dönemler için uygulanır, bkz.
+// donemGuncellemeAnaliziniYap ve donemleriTopluArsivle.
+async function donemiArsivle(rapor){
+  const donemId = raporunAitOlduguDonem(rapor);
+  if(!donemId) return null;
+  await tekDonemiArsivle(rapor, donemId);
   await donemleriKaydet();
   return {donemId};
+}
+
+// donemGuncellemeAnaliziniYap sonucuna göre: otomatikYazilacakDonemler listesindeki
+// TÜM dönemleri arşive yazar (aktif dönem zaten donemiArsivle ile yazılmış olabilir,
+// tekrar yazmak zararsızdır — idempotent). Tek bir syncYaz çağrısıyla kaydeder.
+async function donemleriTopluArsivle(rapor, donemIdListesi){
+  for(const donemId of donemIdListesi){
+    await tekDonemiArsivle(rapor, donemId);
+  }
+  await donemleriKaydet();
 }
 
 function donemListesi(){ // en yeni → en eski sıralı
@@ -194,35 +224,134 @@ function donemToplamOzetiHesapla(donemId){
   };
 }
 
-// ===== 4) GEÇMİŞE EKLENEN NETSİS KAYDI UYARISI =====
-// Yeni Netsis verisindeki her satır için: satırın tarihi ARŞİVLENMİŞ bir geçmiş
-// döneme aitse VE o dönem arşivlendiğinde bu anahtar (VKN+belgeNo) orada yoksa,
-// bu "sonradan eklenmiş/geriye dönük girilmiş" bir kayıt olabilir → uyarı listesine ekle.
-// Not: yalnızca Netsis için çalışır (kullanıcı tercihi); şimdiki (canlı) dönem hariç tutulur.
-function gecmiseEklenenNetsisKayitlariBul(rapor){
-  if(!rapor) return [];
-  const simdikiDonemId = raporunAitOlduguDonem(rapor);
-  const arsivDonemIdleri = Object.keys(state.donemler).filter(id=> id !== simdikiDonemId);
-  if(!arsivDonemIdleri.length) return [];
+// ===== 5) ÇOK-DÖNEMLİ NETSİS GÜNCELLEME ANALİZİ =====
+// Kullanıcı kuralı: aktif çalışılan dönem (raporun ait olduğu ay) ve BİR SONRAKİ ay
+// için Netsis değişiklikleri onaysız/otomatik arşive yazılır. Aktif dönemden ÖNCEKİ
+// her ay (1 ay bile olsa) ve aktif dönemden 2+ ay SONRAKİ her ay için onay istenir.
+// Bu, "ay sonu kapanmış dönemlere sessizce müdahale edilmesin" ilkesini uygular.
 
-  const sonuc = [];
+// donemId2 - donemId1 farkını AY SAYISI olarak döner (donemId2 daha ileri bir ay ise pozitif).
+function donemFarkiAySayisi(donemId1, donemId2){
+  const [y1, a1] = donemId1.split('-').map(Number);
+  const [y2, a2] = donemId2.split('-').map(Number);
+  return (y2 - y1) * 12 + (a2 - a1);
+}
+
+// aktifDonemId'ye göre hedefDonemId onaysız/otomatik yazılabilir mi?
+// Kural: hedef == aktif (fark 0) VEYA hedef == aktif+1 ay (fark 1) → true (otomatik).
+// Aktiften önce (fark < 0) veya aktiften 2+ ay sonra (fark >= 2) → false (onay gerekir).
+function donemOtomatikYazilabilirMi(aktifDonemId, hedefDonemId){
+  if(!aktifDonemId || !hedefDonemId) return true; // dönem belirlenemiyorsa eski davranış (engelleme yok)
+  const fark = donemFarkiAySayisi(aktifDonemId, hedefDonemId);
+  return fark === 0 || fark === 1;
+}
+
+// Rapordaki Netsis-kaynaklı (eşleşmiş veya sadece-Netsis'te) satırları, faturaTarihi'nin
+// ait olduğu aya göre gruplar. Her grup: {donemId, satirlar:[...], anahtarlar:Set}
+function netsisSatirlariniDonemeGoreGrupla(rapor){
+  const gruplar = new Map(); // donemId -> {satirlar:[], anahtarlar:Set}
   (rapor.faturalar||[]).forEach(f=>{
-    if(f.netsisTutar==null && f.yon!=='netsis') return; // sadece netsis kaynaklı/eşleşmiş satırlar
-    if(!f.faturaTarihi) return;
+    const netsisKaynakliMi = f.netsisTutar!=null || f.yon==='netsis';
+    if(!netsisKaynakliMi || !f.faturaTarihi) return;
     const t = new Date(f.faturaTarihi);
     if(isNaN(t)) return;
-    const kayitDonemId = donemIdUret(t.getFullYear(), t.getMonth());
-    if(kayitDonemId === simdikiDonemId) return; // bu ayın kendi verisi, sorun değil
-    if(!state.donemler[kayitDonemId]) return; // o dönem hiç arşivlenmemiş, kıyaslanamaz
-
-    const arsivlenmisAnahtarlar = new Set(state.donemler[kayitDonemId].netsisAnahtarlari || []);
-    if(!arsivlenmisAnahtarlar.has(f.faturaKey)){
-      sonuc.push({
-        faturaKey: f.faturaKey, faturaNo: f.faturaNo, vkn: f.vkn, gonderenUnvan: f.gonderenUnvan,
-        tutar: f.netsisTutar!=null ? f.netsisTutar : f.tutar, faturaTarihi: f.faturaTarihi,
-        aitOlduguDonemId: kayitDonemId, aitOlduguDonemEtiket: donemEtiketUret(kayitDonemId),
-      });
-    }
+    const donemId = donemIdUret(t.getFullYear(), t.getMonth());
+    if(!gruplar.has(donemId)) gruplar.set(donemId, {donemId, satirlar:[], anahtarlar:new Set()});
+    const grup = gruplar.get(donemId);
+    grup.satirlar.push(f);
+    grup.anahtarlar.add(f.faturaKey);
   });
-  return sonuc;
+  return gruplar;
 }
+
+// Ana analiz fonksiyonu: yeni oluşturulan raporu, ARŞİVLENMEMİŞ durumdaki mevcut
+// state.donemler ile karşılaştırır (yani donemiArsivle ÇAĞRILMADAN ÖNCE kullanılmalı).
+// Dönüş: {
+//   otomatikYazilacakDonemler: [donemId, ...],      // aktif+1 ay içindekiler, direkt yazılır
+//   onayBekleyenDonemler: [{
+//     donemId, eskiSatirSayisi, yeniSatirSayisi,
+//     yeniVeyaDegisenSatirlar: [...],   // dosyada var, arşivde yok/farklı -> otomatik eklenecek (kullanıcı onayına gerek yok, sadece bilgi)
+//     eksikSatirlar: [...],             // arşivde var, dosyada yok -> kullanıcı karar vermeli (çıkar/kalsın)
+//   }, ...]
+// }
+function donemGuncellemeAnaliziniYap(rapor){
+  const aktifDonemId = raporunAitOlduguDonem(rapor);
+  const yeniGruplar = netsisSatirlariniDonemeGoreGrupla(rapor);
+
+  const otomatikYazilacakDonemler = [];
+  const onayBekleyenDonemler = [];
+
+  yeniGruplar.forEach((grup, donemId)=>{
+    const arsivlenmisDonem = state.donemler[donemId] || null;
+    const otomatikMi = donemOtomatikYazilabilirMi(aktifDonemId, donemId);
+
+    if(otomatikMi || !arsivlenmisDonem){
+      // Aktif/bir-sonraki-ay İSE otomatik; hiç arşivlenmemiş yeni bir dönemse de
+      // karşılaştıracak bir şey yok, direkt yazılabilir (ilk kez arşivleniyor).
+      otomatikYazilacakDonemler.push(donemId);
+      return;
+    }
+
+    // Geçmiş/uzak bir dönem VE zaten arşivlenmiş: fark analizini yap.
+    const eskiAnahtarlar = new Set(arsivlenmisDonem.netsisAnahtarlari || []);
+    const yeniAnahtarlar = grup.anahtarlar;
+
+    const yeniVeyaDegisenSatirlar = grup.satirlar.filter(f=> !eskiAnahtarlar.has(f.faturaKey));
+    const eksikAnahtarlar = Array.from(eskiAnahtarlar).filter(k=> !yeniAnahtarlar.has(k));
+    // Eksik anahtarların görüntülenebilir bilgisini eski arşivlenmiş rapordan çekiyoruz.
+    const eskiSatirlarByKey = new Map(
+      (arsivlenmisDonem.rapor && arsivlenmisDonem.rapor.faturalar || []).map(f=> [f.faturaKey, f])
+    );
+    const eksikSatirlar = eksikAnahtarlar
+      .map(k=> eskiSatirlarByKey.get(k))
+      .filter(Boolean);
+
+    if(yeniVeyaDegisenSatirlar.length === 0 && eksikSatirlar.length === 0){
+      return; // bu dönemde hiçbir fark yok, uğraşmaya gerek yok
+    }
+
+    onayBekleyenDonemler.push({
+      donemId,
+      donemEtiket: donemEtiketUret(donemId),
+      eskiSatirSayisi: eskiAnahtarlar.size,
+      yeniSatirSayisi: yeniAnahtarlar.size,
+      yeniVeyaDegisenSatirlar,
+      eksikSatirlar,
+    });
+  });
+
+  return {aktifDonemId, otomatikYazilacakDonemler, onayBekleyenDonemler};
+}
+
+// Kullanıcı onay modalında "Tümünü Göz Ardı Et ve Uygula"ya bastıktan sonra çağrılır.
+// onayBekleyenDonem: donemGuncellemeAnaliziniYap'ın onayBekleyenDonemler dizisinden bir eleman.
+// cikarilacakFaturaKeyleri: kullanıcının "Elle çıkar" ile işaretlediği faturaKey'lerin Set'i
+//   (bu anahtarlar arşivden SİLİNİR); işaretlenmeyen eksik satırlar arşivde OLDUĞU GİBİ KALIR.
+// Yeni/değişen satırlar HER ZAMAN eklenir (bunlar için zaten onay istenmiyor, sadece bilgi amaçlıydı).
+async function donemOnayiUygula(onayBekleyenDonem, cikarilacakFaturaKeyleri){
+  const {donemId, yeniVeyaDegisenSatirlar, eksikSatirlar} = onayBekleyenDonem;
+  const mevcutArsiv = state.donemler[donemId];
+  if(!mevcutArsiv) return;
+
+  const cikarilacaklar = cikarilacakFaturaKeyleri || new Set();
+  // Korunacak eksik satırlar: kullanıcının işaretlemediği (yani "kalsın" dediği) satırlar.
+  const korunacakEksikSatirlar = eksikSatirlar.filter(f=> !cikarilacaklar.has(f.faturaKey));
+
+  // Yeni arşiv listesi = (eski arşivdeki satırlar İÇİNDEN çıkarılacaklar hariç tutulmuş hali)
+  //                        zaten korunacakEksikSatirlar + yeni/değişen satırlar birebir bunu temsil
+  //                        etmiyor çünkü eski arşivde "zaten aynı kalan" satırlar da vardı.
+  // En doğru yöntem: eski arşivdeki TÜM satırlardan çıkarılacakları çıkarıp, üstüne yeni/
+  // değişen satırları (varsa eskisinin yerine geçecek şekilde, faturaKey bazında) eklemek.
+  const eskiSatirlar = (mevcutArsiv.rapor && mevcutArsiv.rapor.faturalar) || [];
+  const yeniVeyaDegisenKeySeti = new Set(yeniVeyaDegisenSatirlar.map(f=> f.faturaKey));
+
+  const guncelSatirlar = [
+    ...eskiSatirlar.filter(f=> !cikarilacaklar.has(f.faturaKey) && !yeniVeyaDegisenKeySeti.has(f.faturaKey)),
+    ...yeniVeyaDegisenSatirlar,
+  ];
+
+  const sahteRapor = {faturalar: guncelSatirlar, kpi: mevcutArsiv.rapor.kpi, gruplar: mevcutArsiv.rapor.gruplar, efesKesanMi: mevcutArsiv.rapor.efesKesanMi};
+  await tekDonemiArsivle(sahteRapor, donemId);
+  await donemleriKaydet();
+}
+

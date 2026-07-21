@@ -42,7 +42,7 @@ function aktifGrupSatirlariKaynaksiz(){
   if(aktifGrup==='kesan') return gruplar.kesan;
   if(aktifGrup==='bayrampasa') return gruplar.bayrampasa;
   if(aktifGrup==='kontrol') return gruplar.kontrol;
-  if(aktifGrup==='iadeKesilecek') return gruplar.iadeKesilecek;
+  if(aktifGrup==='notlar') return gruplar.notlu;
   return faturalar;
 }
 
@@ -102,8 +102,8 @@ function renderTutarOzeti(){
   const el = document.getElementById('tutarOzetKap');
   if(!el) return;
   if(!state.rapor){ el.innerHTML = ''; return; }
-  // iade grubunda tutar özeti anlamlı değil (hepsi eşleşti sayılıyor) — gizle.
-  if(aktifGrup==='iadeKesilecek'){ el.innerHTML = ''; return; }
+  // notlar grubunda tutar özeti anlamlı değil (karışık durumlarda faturalar var) — gizle.
+  if(aktifGrup==='notlar'){ el.innerHTML = ''; return; }
   const satirlar = aktifGrupSatirlari();
   const o = tutarOzetiHesapla(satirlar);
   const kart = (cls, ikon, lbl, tutar, altMetin, sparkRenk, sparkPath)=>`
@@ -165,58 +165,93 @@ function renderYetimUyari(){
   }
 }
 
-// ===== AY SONU KONTROLÜ 1: Geçmişe eklenen Netsis kaydı uyarısı =====
-// Yeni yüklenen Netsis dosyasında, ARŞİVLENMİŞ bir geçmiş aya ait olduğu halde o dönem
-// arşivlendiğinde orada olmayan (sonradan girilmiş/değişmiş olabilecek) kayıtlar varsa uyarır.
-function renderGecmiseEklenenUyari(){
-  const el = document.getElementById('gecmiseEklenenUyariKap');
-  if(!el) return;
-  const liste = state.gecmiseEklenenNetsisKayitlari || [];
-  if(!liste.length || state.goruntulenenDonemId){ el.innerHTML = ''; return; }
+// ===== AY SONU KONTROLÜ 1: Geçmiş/uzak dönem Netsis değişikliği onay modalı =====
+// Aktif çalışılan ay (ve bir sonraki ay) DIŞINDA kalan dönemlere ait Netsis
+// değişiklikleri otomatik arşivlenmez — bu modal kullanıcıya ne değiştiğini gösterir:
+//   - "Yeni/değişen" satırlar: dosyada var, arşivde yok/farklıydı → otomatik eklenecek (bilgi amaçlı)
+//   - "Eksik" satırlar: arşivde var, yeni dosyada yok → kullanıcı "Elle çıkar" ile işaretleyebilir
+// "Tümünü Göz Ardı Et ve Uygula": işaretlenen eksikler arşivden silinir, işaretlenmeyenler
+// (ve tüm yeni/değişen satırlar) arşive yazılır.
+function donemOnayModaliAc(onayBekleyenDonemler){
+  if(!onayBekleyenDonemler || !onayBekleyenDonemler.length) return;
+  if(document.getElementById('donemOnayOverlay')) return; // zaten açık, tekrar açma
 
-  const gruplu = new Map();
-  liste.forEach(k=>{
-    if(!gruplu.has(k.aitOlduguDonemId)) gruplu.set(k.aitOlduguDonemId, []);
-    gruplu.get(k.aitOlduguDonemId).push(k);
-  });
-  const donemOzetleri = Array.from(gruplu.entries()).sort((a,b)=> b[0].localeCompare(a[0]))
-    .map(([donemId, kayitlar])=> `<span class="gecmis-donem-rozet">${escapeHtml(donemEtiketUret(donemId))}: <strong>${fmtInt(kayitlar.length)}</strong> kayıt</span>`).join('');
-
-  const detaySatirlari = liste.slice(0, 40).map(k=>`
-    <div class="gecmis-kayit-satir">
-      <span class="gecmis-kayit-fno">${escapeHtml(k.faturaNo)}</span>
-      <span class="gecmis-kayit-unvan">${escapeHtml(k.gonderenUnvan||'')}</span>
-      <span class="gecmis-kayit-tutar">${fmtTL(k.tutar)}</span>
-      <span class="gecmis-kayit-donem">${escapeHtml(k.aitOlduguDonemEtiket)}</span>
-    </div>
-  `).join('');
-
-  el.innerHTML = `
-    <div class="gecmis-uyari">
-      <div class="gecmis-uyari-ust">
-        <div class="gecmis-uyari-baslik">
-          <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
-          <span><strong>${fmtInt(liste.length)}</strong> Netsis kaydı, arşivlenmiş geçmiş bir aya ait olduğu halde o dönem arşivinde YOK — sonradan girilmiş/değiştirilmiş olabilir.</span>
-        </div>
-        <button type="button" class="yetim-detay-btn" id="btnGecmisDetay">Detayları göster <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button>
+  const donemBlokHtml = (d, dIndex)=>{
+    const yeniSatirlarHtml = d.yeniVeyaDegisenSatirlar.slice(0, 30).map(f=>`
+      <div class="donem-onay-satir">
+        <span class="donem-onay-fno">${escapeHtml(f.faturaNo||'')}</span>
+        <span class="donem-onay-unvan">${escapeHtml(f.gonderenUnvan||'')}</span>
+        <span class="donem-onay-tutar">${fmtTL(f.netsisTutar!=null?f.netsisTutar:f.tutar)}</span>
       </div>
-      <div class="gecmis-donem-rozetler">${donemOzetleri}</div>
-      <div class="yetim-detay" id="gecmisDetay" hidden>
-        <div class="yetim-aciklama">Bu kayıtlar, ilgili ay ilk arşivlendiğinde Netsis verisinde yoktu. Genelde geriye dönük fatura girişi veya kayıt güncellemesinden kaynaklanır — ay sonu kapanışı yapılmış bir dönemde beklenmedik bir değişiklik olup olmadığını kontrol edin.</div>
-        ${detaySatirlari}
-        ${liste.length>40? `<div class="yetim-satir" style="color:var(--ink-faint);">…ve ${fmtInt(liste.length-40)} tane daha</div>` : ''}
+    `).join('');
+
+    const eksikSatirlarHtml = d.eksikSatirlar.slice(0, 60).map((f, fIndex)=>`
+      <label class="donem-onay-eksik-satir">
+        <input type="checkbox" class="donem-onay-cikar-cb" data-donem-index="${dIndex}" data-fatura-key="${escapeHtml(f.faturaKey)}">
+        <span class="donem-onay-fno">${escapeHtml(f.faturaNo||'')}</span>
+        <span class="donem-onay-unvan">${escapeHtml(f.gonderenUnvan||'')}</span>
+        <span class="donem-onay-tutar">${fmtTL(f.netsisTutar!=null?f.netsisTutar:f.tutar)}</span>
+      </label>
+    `).join('');
+
+    return `
+      <div class="donem-onay-blok">
+        <div class="donem-onay-blok-baslik"><i class="fa-solid fa-calendar-week" aria-hidden="true"></i> ${escapeHtml(d.donemEtiket)}</div>
+
+        ${d.yeniVeyaDegisenSatirlar.length ? `
+          <div class="donem-onay-alt-baslik ok">${fmtInt(d.yeniVeyaDegisenSatirlar.length)} yeni/değişen kayıt — otomatik eklenecek</div>
+          <div class="donem-onay-liste">${yeniSatirlarHtml}</div>
+          ${d.yeniVeyaDegisenSatirlar.length>30? `<div class="donem-onay-fazla">…ve ${fmtInt(d.yeniVeyaDegisenSatirlar.length-30)} tane daha</div>` : ''}
+        ` : ''}
+
+        ${d.eksikSatirlar.length ? `
+          <div class="donem-onay-alt-baslik uyari">${fmtInt(d.eksikSatirlar.length)} kayıt arşivde var ama yeni dosyada yok — çıkarılacakları işaretleyin</div>
+          <div class="donem-onay-liste">${eksikSatirlarHtml}</div>
+          ${d.eksikSatirlar.length>60? `<div class="donem-onay-fazla">…ve ${fmtInt(d.eksikSatirlar.length-60)} tane daha (otomatik korunur)</div>` : ''}
+        ` : ''}
       </div>
+    `;
+  };
+
+  const overlay = document.createElement('div');
+  overlay.className = 'upload-overlay';
+  overlay.id = 'donemOnayOverlay';
+  overlay.innerHTML = `
+    <div class="upload-modal" style="max-width:560px;">
+      <div class="upload-modal-head">
+        <div class="upload-modal-title">Geçmiş Dönem Değişikliği Onayı</div>
+      </div>
+      <div style="color:rgba(255,255,255,.65); font-size:12.5px; margin-bottom:14px; line-height:1.6;">
+        Yüklediğiniz Netsis dosyasında, aktif çalıştığınız ayın dışında kalan dönemlere ait
+        değişiklikler bulundu. Aşağıdaki dönemleri kontrol edin.
+      </div>
+      <div id="donemOnayGovde">
+        ${onayBekleyenDonemler.map(donemBlokHtml).join('')}
+      </div>
+      <button type="button" class="upload-build-btn" id="btnDonemOnayUygula" style="margin-top:16px;">
+        <i class="fa-solid fa-check" aria-hidden="true"></i> Tümünü Göz Ardı Et ve Uygula
+      </button>
     </div>
   `;
-  const btn = document.getElementById('btnGecmisDetay');
-  const det = document.getElementById('gecmisDetay');
-  if(btn && det){
-    btn.addEventListener('click', ()=>{
-      const acik = !det.hidden;
-      det.hidden = acik;
-      btn.innerHTML = acik ? 'Detayları göster <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>' : 'Gizle <i class="fa-solid fa-chevron-up" aria-hidden="true"></i>';
+  document.body.appendChild(overlay);
+
+  document.getElementById('btnDonemOnayUygula').addEventListener('click', async ()=>{
+    const cikarilacakByDonem = new Map(); // donemIndex -> Set(faturaKey)
+    overlay.querySelectorAll('.donem-onay-cikar-cb:checked').forEach(cb=>{
+      const dIndex = cb.dataset.donemIndex;
+      if(!cikarilacakByDonem.has(dIndex)) cikarilacakByDonem.set(dIndex, new Set());
+      cikarilacakByDonem.get(dIndex).add(cb.dataset.faturaKey);
     });
-  }
+
+    for(let i=0; i<onayBekleyenDonemler.length; i++){
+      const d = onayBekleyenDonemler[i];
+      const cikarilacaklar = cikarilacakByDonem.get(String(i)) || new Set();
+      await donemOnayiUygula(d, cikarilacaklar);
+    }
+
+    overlay.remove();
+    renderDonemPaneli();
+  });
 }
 
 // ===== AY SONU KONTROLÜ 2-3-4: Dönem paneli =====
@@ -353,7 +388,6 @@ function donemGoruntule(donemId){
   renderGroupTabs();
   renderGroupSections();
   renderDonemPaneli();
-  renderGecmiseEklenenUyari();
 }
 
 // Arşiv görünümünden çıkıp o an IndexedDB'de saklı GÜNCEL rapora geri döner.
@@ -370,7 +404,6 @@ async function donemCanliyaDon(){
   renderGroupTabs();
   renderGroupSections();
   renderDonemPaneli();
-  renderGecmiseEklenenUyari();
 }
 
 // KPI: "Toplam Fatura" mavi birincil kart + 5 beyaz ikonlu durum kartı. Kartlar aynı
@@ -425,7 +458,7 @@ function renderKPIs(){
 }
 
 function renderGroupTabs(){
-  const gruplar = state.rapor ? state.rapor.gruplar : {kesan:[],bayrampasa:[],kontrol:[],iadeKesilecek:[]};
+  const gruplar = state.rapor ? state.rapor.gruplar : {kesan:[],bayrampasa:[],kontrol:[],notlu:[]};
   const toplam = state.rapor ? state.rapor.faturalar.length : 0;
   const el = document.getElementById('groupTabs');
   const tabs = [
@@ -433,11 +466,11 @@ function renderGroupTabs(){
     {key:'kesan', label:'Keşan', cnt: gruplar.kesan.length},
     {key:'bayrampasa', label:'Bayrampaşa', cnt: gruplar.bayrampasa.length},
     {key:'kontrol', label:'Kontrol', cnt: gruplar.kontrol.length, warn:true},
-    {key:'iadeKesilecek', label:'İade Edilecekler', cnt: gruplar.iadeKesilecek.length, note:true},
+    {key:'notlar', label:'Notlar', cnt: gruplar.notlu.length, note:true},
   ];
   el.innerHTML = tabs.map(t=>`
     <button type="button" class="group-tab ${t.key===aktifGrup?'active':''} ${t.warn?'cls-warn':''} ${t.note?'cls-note':''}" data-grup="${t.key}">
-      ${t.note?'<i class="fa-solid fa-rotate-left" aria-hidden="true"></i> ':''}${t.label} <span class="cnt">${fmtInt(t.cnt)}</span>
+      ${t.note?'<i class="fa-solid fa-note-sticky" aria-hidden="true"></i> ':''}${t.label} <span class="cnt">${fmtInt(t.cnt)}</span>
     </button>
   `).join('');
   el.querySelectorAll('.group-tab').forEach(btn=>{
@@ -736,9 +769,9 @@ function renderSearchBox(){
   `;
 }
 
-function iadeKartlariHtml(satirlar){
+function notluKartlarHtml(satirlar){
   if(!satirlar.length){
-    return `<div class="section-card"><div class="empty-state">Henüz "İade Faturası Kesilecek" olarak işaretlenmiş bir fatura yok. Bir faturaya tıklayıp manuel durumdan seçebilirsiniz.</div></div>`;
+    return `<div class="section-card"><div class="empty-state">Henüz not eklenmiş bir fatura yok. Bir faturaya tıklayıp not ekleyebilir veya manuel durum işaretleyebilirsiniz.</div></div>`;
   }
   const sirali = [...satirlar].sort((a,b)=>{
     const ta = a.notGuncellemeZamani ? new Date(a.notGuncellemeZamani).getTime() : 0;
@@ -747,10 +780,13 @@ function iadeKartlariHtml(satirlar){
   });
   return `
     <div class="section-card">
-      <div class="section-label">İade Edilecekler <span class="section-label-cnt">${fmtInt(sirali.length)} fatura</span></div>
+      <div class="section-label">Notlar <span class="section-label-cnt">${fmtInt(sirali.length)} fatura</span></div>
       <div class="not-kart-liste">
         ${sirali.map(f=>{
           const notVarMi = f.not && f.not.trim();
+          const manuelTanim = f.manuelDurum ? manuelDurumTanimBul(f.manuelDurum) : null;
+          const gercekDurum = f.manuelDurum ? f.orijinalDurum : f.durum;
+          const gercekDurumEtiket = f.manuelDurum ? f.orijinalDurumEtiket : f.durumEtiket;
           return `
           <div class="not-kart" data-fatura-key="${escapeHtml(f.faturaKey)}">
             <div class="not-kart-ust">
@@ -761,8 +797,8 @@ function iadeKartlariHtml(satirlar){
               <div class="not-kart-tutar">${fmtTL(f.yon==='netsis' ? f.netsisTutar : f.tutar)}</div>
             </div>
             <div class="not-kart-badges">
-              <span class="badge badge-success"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Eşleşti</span>
-              <span class="badge badge-manuel badge-purple"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> İade Faturası Kesilecek</span>
+              <span class="badge ${durumBadgeClass(gercekDurum)}"><i class="${durumBadgeIcon(gercekDurum)}" aria-hidden="true"></i> ${escapeHtml(gercekDurumEtiket)}</span>
+              ${manuelTanim ? `<span class="badge badge-manuel ${manuelTanim.cls}"><i class="${manuelTanim.icon}" aria-hidden="true"></i> ${escapeHtml(manuelTanim.label)}</span>` : ''}
             </div>
             ${notVarMi ? `<div class="not-kart-metin">${escapeHtml(f.not)}</div>` : `<div class="not-kart-metin not-kart-metin-bos">Not eklenmemiş — detayına tıklayıp not ekleyebilirsiniz.</div>`}
             ${f.notGuncellemeZamani ? `<div class="not-kart-zaman">Son güncelleme: ${new Date(f.notGuncellemeZamani).toLocaleString('tr-TR')}</div>` : ''}
@@ -815,10 +851,10 @@ function renderGroupSections(){
       </div>
       ${icerikTablosu(filtreliSatirlar, 'Kontrol')}
     `;
-  }else if(aktifGrup==='iadeKesilecek'){
+  }else if(aktifGrup==='notlar'){
     el.innerHTML = `
       ${arama}
-      ${iadeKartlariHtml(aramayaGoreFiltrele(kaynakFiltreli))}
+      ${notluKartlarHtml(aramayaGoreFiltrele(kaynakFiltreli))}
     `;
   }
 
@@ -966,6 +1002,16 @@ function subeAtamaBlokHtml(f){
   `;
 }
 
+const KAYNAK_ETIKET_TANIM = {
+  logo: {label:'E-Fatura · Logo', icon:'fa-solid fa-file-invoice'},
+  qnb: {label:'E-Fatura · QNB', icon:'fa-solid fa-file-invoice'},
+  earsiv: {label:'E-Arşiv', icon:'fa-solid fa-box-archive'},
+  netsis: {label:'Netsis', icon:'fa-solid fa-calculator'},
+};
+function kaynakEtiketiGetir(kaynakKey){
+  return KAYNAK_ETIKET_TANIM[kaynakKey] || {label: kaynakKey || 'Bilinmiyor', icon:'fa-solid fa-circle-question'};
+}
+
 function faturaDetayModalAc(key){
   const f = state.rapor.faturalar.find(x=> x.faturaKey===key);
   if(!f) return;
@@ -999,6 +1045,10 @@ function faturaDetayModalAc(key){
           <div class="upload-row-name">Tutar</div>
           <div class="upload-row-status ok" style="color:#fff;font-size:13px;margin-top:4px;">${fmtTL(f.yon==='netsis' ? f.netsisTutar : f.tutar)}</div>
         </div>
+      </div>
+      <div class="fatura-kaynak-satir">
+        <i class="${kaynakEtiketiGetir(f.kaynak).icon}" aria-hidden="true"></i>
+        Bu fatura <strong>${escapeHtml(kaynakEtiketiGetir(f.kaynak).label)}</strong> kaynağından geldi.
       </div>
       ${manuelTanim ? `
         <div class="manuel-aktif-uyari">

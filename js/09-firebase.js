@@ -88,10 +88,23 @@ function erisimAnahtariniTemizle(){
 // RTDB'ye yazmayı DENER; başarısız olursa (anahtar yanlış, bağlantı yok vb.)
 // sessizce IndexedDB'ye yazar ve hatayı konsola loglar — kullanıcının işi asla
 // tamamen durmaz, en kötü ihtimalle o cihaz "yerel modda" kalmış olur.
+// Firebase Realtime Database, JavaScript Date objelerini DESTEKLEMEZ — .set() çağrısına
+// gerçek bir Date nesnesi geçilirse ya sessizce boş kaydedilir ya da hata verir. Ancak
+// excelDateToJS (01-cekirdek.js) faturaTarihi alanları için hep gerçek Date döndürüyor,
+// ve bu Date nesneleri rapor/dönem arşivi gibi büyük objelerin içine derin gömülü oluyor.
+// Bu fonksiyon, kaydetmeden ÖNCE objenin içindeki HER Date nesnesini ISO string'e çevirir
+// (JSON.stringify zaten Date'leri toISOString ile stringe çevirir — bunu JSON round-trip
+// ile garantiye alıyoruz, RTDB'ye "temiz", tamamen JSON-uyumlu bir obje gönderiliyor).
+function derinDateTemizle(deger){
+  if(deger === undefined) return null; // RTDB undefined kabul etmez
+  return JSON.parse(JSON.stringify(deger));
+}
+
 async function syncYaz(anahtar, deger){
   const cihazId = await cihazIdAl();
+  const temizDeger = derinDateTemizle(deger);
   const sarmal = {
-    deger,
+    deger: temizDeger,
     guncellemeZamani: new Date().toISOString(),
     cihazId,
   };
@@ -322,8 +335,6 @@ function canliGuncellemeUygula(anahtar, yeniDeger){
       // biz arşiv görünümündeysek (goruntulenenDonemId doluysa) ekranı BOZMAYIZ.
       if(!state.goruntulenenDonemId && yeniDeger && yeniDeger.rapor){
         state.rapor = raporEksikAlanlariTamamla(yeniDeger.rapor);
-        state.gecmiseEklenenNetsisKayitlari = typeof gecmiseEklenenNetsisKayitlariBul==='function'
-          ? gecmiseEklenenNetsisKayitlariBul(state.rapor) : [];
         yenidenCizVeBildir('Rapor başka bir cihazda güncellendi.');
       }
       break;
@@ -347,7 +358,6 @@ function yenidenCizVeBildir(mesaj){
   if(typeof renderGroupTabs === 'function') renderGroupTabs();
   if(typeof renderGroupSections === 'function') renderGroupSections();
   if(typeof renderDonemPaneli === 'function') renderDonemPaneli();
-  if(typeof renderGecmiseEklenenUyari === 'function') renderGecmiseEklenenUyari();
   canliBildirimGoster(mesaj);
 }
 
