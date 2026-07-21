@@ -373,10 +373,31 @@ async function canliDinlemeBaslat(){
   const kendiCihazId = await cihazIdAl();
   _canliDinlemeAktifMi = true;
 
+  // ÖNEMLİ: Firebase RTDB'nin ref.on('value', cb) API'si, abone olunduğu ANDA mevcut
+  // veriyle callback'i BİR KEZ hemen tetikler (bu, "gerçek" bir değişiklik bildirimi
+  // değil, "işte şu an sunucudaki veri" bildirimidir — RTDB'nin belgelenen davranışı).
+  // cihazId kontrolü teorik olarak bu ilk tetiklenmeyi kendi verimiz olduğu için
+  // eleyecekti, ama olası bir gecikme/senkron sorununda BU İLK TETİKLENME state.rapor'u
+  // henüz tam yüklenmemiş/eksik bir veriyle ezebilir. Bu yüzden her anahtar için "ilk
+  // tetiklenmeyi kesin olarak yok say" bayrağı ekliyoruz — sadece bundan SONRAKİ
+  // (gerçekten başka bir cihazdan gelen) değişiklikler işlenir.
+  const ilkTetiklenmeGectiMi = {};
+  CANLI_DINLENEN_ANAHTARLAR.forEach((anahtar)=>{
+    ilkTetiklenmeGectiMi[anahtar] = false;
+  });
+
   CANLI_DINLENEN_ANAHTARLAR.forEach((anahtar)=>{
     const yol = KV_YOLU + '/' + rtdbYoluGuvenliHalGetir(anahtar);
     const ref = _rtdb.ref(yol);
     ref.on('value', (anlikGoruntu)=>{
+      if(!ilkTetiklenmeGectiMi[anahtar]){
+        // Bu, abone olma anındaki "mevcut durum" bildirimi — state'e hiç dokunma,
+        // sadece bayrağı işaretleyip çık. Sayfa zaten tumVeriyiYenidenYukleVeCiz ile
+        // bu veriyi doğru şekilde yüklemiş durumda.
+        ilkTetiklenmeGectiMi[anahtar] = true;
+        return;
+      }
+
       const veri = anlikGoruntu.val();
       if(!veri || !('deger' in veri)) return;
       if(veri.cihazId === kendiCihazId) return; // kendi yazdığımız değişiklik, yoksay
@@ -414,7 +435,15 @@ function canliGuncellemeUygula(anahtar, yeniDeger){
       Object.assign(state.kaynaklar, yeniDeger);
       if(typeof renderUploadPanels === 'function') renderUploadPanels();
       if(typeof guncelleRaporOlusturButonu === 'function') guncelleRaporOlusturButonu();
-      bildirimMetni('Veri kaynakları başka bir cihazda güncellendi.');
+      // Kaynaklar değiştiyse ve zaten bir rapor görüntüleniyorsa, raporu da güncel
+      // kaynaklarla yeniden hesaplamak gerekir — aksi halde rapor ile kaynaklar
+      // arasında tutarsızlık oluşur (rapor eski kaynaklara göre kalır).
+      if(state.rapor && !state.goruntulenenDonemId){
+        state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari);
+        yenidenCizVeBildir('Veri kaynakları başka bir cihazda güncellendi.');
+      }else{
+        bildirimMetni('Veri kaynakları başka bir cihazda güncellendi.');
+      }
       break;
     case 'efaturaPanelManuel_v1':
       state.manuel = yeniDeger || {};
@@ -426,7 +455,19 @@ function canliGuncellemeUygula(anahtar, yeniDeger){
     case 'efaturaPanelSonRapor_v1':
       // Sadece BAŞKA bir cihazın "Raporu Oluştur"a bastığı an güncel rapor değişir;
       // biz arşiv görünümündeysek (goruntulenenDonemId doluysa) ekranı BOZMAYIZ.
+      // GÜVENLİK KONTROLÜ: gelen rapor faturasız/boşsa VEYA mevcut raporun çok küçük
+      // bir kısmıysa (örn. %20'sinden azıysa), bu muhtemelen bozuk/eksik bir senkron
+      // verisidir — ekranı EZMEYİZ, sadece konsola uyarı basıp mevcut görünümü koruruz.
+      // Gerçek "başka cihazdan küçük bir rapora düşüş" senaryosu son derece nadirdir;
+      // yanlışlıkla tüm veriyi kaybetme riski çok daha ciddidir.
       if(!state.goruntulenenDonemId && yeniDeger && yeniDeger.rapor){
+        const yeniSatirSayisi = Array.isArray(yeniDeger.rapor.faturalar) ? yeniDeger.rapor.faturalar.length : 0;
+        const eskiSatirSayisi = (state.rapor && Array.isArray(state.rapor.faturalar)) ? state.rapor.faturalar.length : 0;
+        const supheliKucukMu = eskiSatirSayisi > 10 && yeniSatirSayisi < eskiSatirSayisi * 0.2;
+        if(yeniSatirSayisi === 0 || supheliKucukMu){
+          console.warn(`Canlı senkrondan gelen rapor şüpheli derecede küçük (${yeniSatirSayisi} satır, mevcut: ${eskiSatirSayisi}) — ekran ezilmedi, güvenlik için mevcut rapor korundu.`);
+          break;
+        }
         state.rapor = raporEksikAlanlariTamamla(yeniDeger.rapor);
         yenidenCizVeBildir('Rapor başka bir cihazda güncellendi.');
       }
