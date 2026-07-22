@@ -1230,7 +1230,7 @@ function faturaDetayModalAc(key){
       <div class="fd-bilgi-grid">
         <div class="fd-bilgi-hucre">
           <div class="upload-section-label">VKN/TCKN</div>
-          <div class="fd-bilgi-deger">${escapeHtml(String(f.vkn==null?'—':f.vkn))}</div>
+          <div class="fd-bilgi-deger">${escapeHtml(f.vkn ? String(f.vkn) : '—')}</div>
         </div>
         <div class="fd-bilgi-hucre">
           <div class="upload-section-label">Kaynak</div>
