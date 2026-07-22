@@ -233,24 +233,39 @@ function tarihUyusmazlikUyarisiVarMi(){
 
 const RAPOR_STORAGE_KEY = 'efaturaPanelSonRapor_v1';
 
+// PERFORMANS (Seçenek 3): state.rapor ARTIK RTDB'ye (buluta) YAZILMAZ. Rapor, ham
+// veriden (state.kaynaklar) her cihazda deterministik olarak hesaplanabildiği için onu
+// ayrıca buluta senkronlamak gereksizdi — üstelik yüzlerce faturalı bir obje her küçük
+// işlemde (şube atama, silme, manuel durum) iki kez derin-kopyalanıp ağa gönderiliyor,
+// ekranı saniyelerce donduruyordu. Artık rapor SADECE yerel IndexedDB'ye (hızlı, ağ
+// yok) yazılır — aynı cihaz tekrar açıldığında anlık gösterim için bir önbellek görevi
+// görür. Başka bir cihaz açıldığında ise rapor ham veriden yeniden hesaplanır
+// (bkz. tumVeriyiYenidenYukleVeCiz).
 async function saveRaporToStorage(){
   try{
-    await syncYaz(RAPOR_STORAGE_KEY, {
-      rapor: state.rapor,
-      kayitZamani: new Date().toISOString(),
-      dosyaAdlari: Object.fromEntries(
-        Object.entries(state.kaynaklar).map(([k,v])=>[k, v?v.dosyaAdi:null])
-      ),
+    // idbSet doğrudan çağrılır — syncYaz DEĞİL (syncYaz RTDB'ye de gönderir). Bu, ağ
+    // beklemesi olmadan yalnızca yerel diske yazar, dolayısıyla ekranı dondurmaz.
+    await idbSet(RAPOR_STORAGE_KEY, {
+      deger: {
+        rapor: state.rapor,
+        kayitZamani: new Date().toISOString(),
+        dosyaAdlari: Object.fromEntries(
+          Object.entries(state.kaynaklar).map(([k,v])=>[k, v?v.dosyaAdi:null])
+        ),
+      },
     });
   }catch(e){
-    console.warn('Rapor kaydedilemedi:', e);
+    console.warn('Rapor yerel önbelleğe yazılamadı:', e);
   }
 }
 
 async function loadRaporFromStorage(){
   try{
-    const parsed = await syncOku(RAPOR_STORAGE_KEY, null);
-    return parsed || null;
+    // Rapor yalnızca yerel önbellekte (idbGet) tutulur — RTDB'de değil. syncOku yerine
+    // doğrudan idbGet kullanılır ki başka cihazın bulut verisiyle karışmasın.
+    const sarmal = await idbGet(RAPOR_STORAGE_KEY);
+    if(sarmal && typeof sarmal === 'object' && 'deger' in sarmal) return sarmal.deger;
+    return null;
   }catch(e){
     console.warn('Kayıtlı rapor okunamadı:', e);
     return null;
@@ -475,9 +490,22 @@ async function tumVeriyiYenidenYukleVeCiz(){
   const kayitliRapor = await loadRaporFromStorage();
   const topbarSub = document.getElementById('topbarSub');
   if(kayitliRapor && kayitliRapor.rapor){
+    // Bu cihazda daha önce hesaplanmış rapor önbellekte var — anında göster.
     state.rapor = raporEksikAlanlariTamamla(kayitliRapor.rapor);
     const zaman = new Date(kayitliRapor.kayitZamani).toLocaleString('tr-TR');
     topbarSub.textContent = `Kayıtlı rapor · Son oluşturma: ${zaman} · ${state.rapor.faturalar.length} kayıt`;
+  }else if(state.kaynaklar && (state.kaynaklar.earsiv || state.kaynaklar.efaturaLogo || state.kaynaklar.efaturaQnb) && state.kaynaklar.netsis){
+    // Yerel rapor önbelleği yok (örn. BAŞKA bir cihaz veya önbellek temizlenmiş) ama
+    // buluttan gelen ham veri mevcut — raporu ham veriden bir kez hesaplayıp gösteriyoruz.
+    // Rapor artık buluta yazılmadığı için (bkz. saveRaporToStorage) bu, başka cihazda
+    // ilk açılışta beklenen normal davranıştır.
+    try{
+      state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari, state.zincirVknListesi, state.faturaSubeAtamalari);
+      await saveRaporToStorage(); // bu cihaz için yerel önbelleğe al (sonraki açılışlar anlık olsun)
+      topbarSub.textContent = `Rapor ham veriden hesaplandı · ${state.rapor.faturalar.length} kayıt`;
+    }catch(err){
+      console.error('Ham veriden rapor hesaplanamadı:', err);
+    }
   }
   renderKPIs();
   renderGroupTabs();

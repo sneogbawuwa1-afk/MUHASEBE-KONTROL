@@ -1297,6 +1297,54 @@ test('VKN hem Keşan hem Netsis\'te farklı kodlarla varsa, Keşan Master her za
   assert.strictEqual(fatura.cariKodu, 'MASTER_KODU');
 });
 
+baslik('\nPERFORMANS — şube/zincir atama ağ gecikmesinden bağımsız ANINDA bellek günceller (donma bug\'ı)');
+test('vknSubesiniAta, kalıcı kayıt (syncYaz) YAVAŞ olsa bile anında döner ve belleği hemen günceller', ()=>{
+  // Kendi izole context'i: syncYaz kasıtlı olarak ASLA çözülmeyen bir Promise döner
+  // (sonsuz ağ gecikmesi simülasyonu). Eski kod (await subeAtamalariniKaydet) burada
+  // SONSUZA KADAR TAKILIRDI — yeni kod (arka planda kayıt) anında dönmeli.
+  const izoleContext = { window:{}, document:{getElementById:()=>null}, console, setTimeout };
+  vm.createContext(izoleContext);
+  vm.runInContext(kod01, izoleContext);
+  vm.runInContext('idbSet = async ()=>{}; idbGet = async ()=> null;', izoleContext);
+  vm.runInContext('syncYaz = ()=> new Promise(()=>{});', izoleContext); // ASLA çözülmez
+  vm.runInContext('syncOku = async (k,d)=> d;', izoleContext);
+  vm.runInContext(kod08, izoleContext);
+  vm.runInContext('state.subeAtamalari = new Map();', izoleContext);
+
+  // Bu çağrı, syncYaz asla çözülmese bile ANINDA tamamlanmalı (senkron fonksiyon)
+  vm.runInContext("vknSubesiniAta('1234567890', 'kesan');", izoleContext);
+  const atanmisMi = vm.runInContext("vknSubesiAtanmisMi('1234567890')", izoleContext);
+  assert.strictEqual(atanmisMi, 'kesan', 'atama, kalıcı kayıt tamamlanmadan da bellekte hemen görünmeli');
+});
+test('zincirVknEkle de kalıcı kayıt asılı kalsa bile belleği anında günceller', ()=>{
+  const izoleContext = { window:{}, document:{getElementById:()=>null}, console, setTimeout };
+  vm.createContext(izoleContext);
+  vm.runInContext(kod01, izoleContext);
+  vm.runInContext('idbSet = async ()=>{}; idbGet = async ()=> null;', izoleContext);
+  vm.runInContext('syncYaz = ()=> new Promise(()=>{});', izoleContext);
+  vm.runInContext('syncOku = async (k,d)=> d;', izoleContext);
+  vm.runInContext(kod08, izoleContext);
+  vm.runInContext('state.zincirVknListesi = new Set();', izoleContext);
+
+  vm.runInContext("zincirVknEkle('6220529513');", izoleContext);
+  const zincirMi = vm.runInContext("vknZincirMi('6220529513')", izoleContext);
+  assert.strictEqual(zincirMi, true);
+});
+test('faturaSubesiniAta de kalıcı kayıt asılı kalsa bile belleği anında günceller', ()=>{
+  const izoleContext = { window:{}, document:{getElementById:()=>null}, console, setTimeout };
+  vm.createContext(izoleContext);
+  vm.runInContext(kod01, izoleContext);
+  vm.runInContext('idbSet = async ()=>{}; idbGet = async ()=> null;', izoleContext);
+  vm.runInContext('syncYaz = ()=> new Promise(()=>{});', izoleContext);
+  vm.runInContext('syncOku = async (k,d)=> d;', izoleContext);
+  vm.runInContext(kod08, izoleContext);
+  vm.runInContext('state.faturaSubeAtamalari = new Map();', izoleContext);
+
+  vm.runInContext("faturaSubesiniAta('fatura-key-1', 'bayrampasa');", izoleContext);
+  const atanmisMi = vm.runInContext("faturaSubesiAtanmisMi('fatura-key-1')", izoleContext);
+  assert.strictEqual(atanmisMi, 'bayrampasa');
+});
+
 asyncTestZinciri.then(()=>{
   console.log(`\n${gecen}/${toplam} test geçti.`);
   process.exit(gecen === toplam ? 0 : 1);

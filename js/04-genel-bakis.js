@@ -1071,15 +1071,18 @@ async function faturaDetayKaydet(faturaKey, overlay, kapat){
   const durum = seciliDurumBtn ? (seciliDurumBtn.dataset.durum || null) : null;
   const notMetni = overlay.querySelector('#faturaNotAlani').value;
 
-  await manuelKaydiGuncelle(faturaKey, {durum, not: notMetni});
+  // Bellek güncellemesi ANINDA, kalıcı kayıt (manuelKaydiGuncelle: RTDB) arka planda.
+  manuelKaydiGuncelle(faturaKey, {durum, not: notMetni})
+    .catch(e=> console.warn('Manuel kayıt kalıcı kaydedilemedi (bellekte geçerli):', e));
 
   state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari, state.zincirVknListesi, state.faturaSubeAtamalari);
-  await saveRaporToStorage();
 
+  // Modal hemen kapansın, ekran hemen güncellensin — yerel rapor önbelleği arka planda yazılır.
   if(typeof kapat==='function') kapat(); else overlay.remove();
   renderKPIs();
   renderGroupTabs();
   renderGroupSections();
+  saveRaporToStorage().catch(e=> console.warn('Rapor önbelleğe yazılamadı:', e));
 }
 
 function subeAtamaBlokHtml(f){
@@ -1391,21 +1394,21 @@ function faturaDetayModalAc(key){
       const onay = confirm(`"${f.faturaNo}" numaralı Netsis kaydını kalıcı olarak silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz.`);
       if(!onay) return;
       modalButonlariniKilitle();
-      (async ()=>{
-        try{
-          const eskiSatirlar = (state.kaynaklar.netsis && state.kaynaklar.netsis.rows) || [];
-          const guncelSatirlar = netsisOnayiUygula(eskiSatirlar, new Set([key]));
-          state.kaynaklar.netsis = { ...state.kaynaklar.netsis, rows: guncelSatirlar };
-          await saveKaynaklarToStorage();
-          await subeAtamasiSonrasiYenidenHesapla();
-          if(typeof toastGoster === 'function') toastGoster('Netsis kaydı silindi', 'basarili');
-        }catch(hata){
-          console.error('Netsis kaydı silinirken hata:', hata);
-          if(typeof toastGoster === 'function') toastGoster('Kayıt silinirken bir sorun oluştu', 'hata');
-        }finally{
-          overlay.remove(); // fatura artık yok, modalı tekrar açmaya çalışmıyoruz
-        }
-      })();
+      try{
+        // Bellek + UI ÖNCE güncellenir (anında hissedilir), kalıcı bulut kaydı
+        // (saveKaynaklarToStorage: RTDB) arka planda await EDİLMEDEN yürür — ekran donmaz.
+        const eskiSatirlar = (state.kaynaklar.netsis && state.kaynaklar.netsis.rows) || [];
+        const guncelSatirlar = netsisOnayiUygula(eskiSatirlar, new Set([key]));
+        state.kaynaklar.netsis = { ...state.kaynaklar.netsis, rows: guncelSatirlar };
+        subeAtamasiSonrasiYenidenHesapla(); // rapor + UI güncelle (yerel önbellek arka planda)
+        saveKaynaklarToStorage().catch(e=> console.warn('Ham veri buluta kaydedilemedi (bellekte silindi):', e));
+        if(typeof toastGoster === 'function') toastGoster('Netsis kaydı silindi', 'basarili');
+      }catch(hata){
+        console.error('Netsis kaydı silinirken hata:', hata);
+        if(typeof toastGoster === 'function') toastGoster('Kayıt silinirken bir sorun oluştu', 'hata');
+      }finally{
+        overlay.remove(); // fatura artık yok, modalı tekrar açmaya çalışmıyoruz
+      }
     });
   }
 
@@ -1427,8 +1430,11 @@ function faturaDetayModalAc(key){
 // "Raporu Oluştur" çağrısında bu güncel şube bilgisiyle otomatik güncellenir).
 async function subeAtamasiSonrasiYenidenHesapla(){
   state.rapor = computeRapor(state.kaynaklar, state.manuel, state.subeAtamalari, state.zincirVknListesi, state.faturaSubeAtamalari);
-  await saveRaporToStorage();
+  // UI'ı ÖNCE güncelle — kullanıcı sonucu anında görsün. Yerel önbelleğe kaydetme
+  // (saveRaporToStorage) artık ağ beklemez (sadece IndexedDB) ama yine de await ETMİYORUZ:
+  // arka planda tamamlanır, ekranı bloklamaz.
   renderKPIs();
   renderGroupTabs();
   renderGroupSections();
+  saveRaporToStorage().catch(e=> console.warn('Rapor önbelleğe yazılamadı:', e));
 }

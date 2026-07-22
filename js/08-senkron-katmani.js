@@ -74,9 +74,12 @@ async function subeAtamalariniKaydet(){
 }
 
 // Bir VKN'yi kalıcı olarak bir şubeye atar (veya atamayı kaldırır, grup=null verilirse).
-// Her çağrı ANINDA arşive/depoya yazılır (senkron katmanı üzerinden) — kullanıcı başka
-// bir cihazdan baktığında (Firebase bağlandığında) aynı kararı görecek şekilde tasarlandı.
-async function vknSubesiniAta(vkn, grup){
+// PERFORMANS: bellek güncellemesi (state.subeAtamalari) ANINDA yapılır ve fonksiyon
+// hemen döner — kalıcı kayıt (subeAtamalariniKaydet: IndexedDB + RTDB) arka planda,
+// await EDİLMEDEN yürür. Böylece çağıran taraf (modal) ağ/disk beklemeden hemen raporu
+// yeniden hesaplayıp ekranı güncelleyebilir. Kayıt hatası olursa sadece loglanır;
+// bellekteki atama zaten geçerlidir ve bir sonraki başarılı senkronda kalıcılaşır.
+function vknSubesiniAta(vkn, grup){
   const normalizeVkn = normVKN(vkn);
   if(!normalizeVkn) return;
   if(grup === 'kesan' || grup === 'bayrampasa'){
@@ -84,7 +87,7 @@ async function vknSubesiniAta(vkn, grup){
   }else{
     state.subeAtamalari.delete(normalizeVkn);
   }
-  await subeAtamalariniKaydet();
+  subeAtamalariniKaydet().catch(e=> console.warn('Şube ataması kalıcı kaydedilemedi (bellekte geçerli):', e));
 }
 
 function vknSubesiAtanmisMi(vkn){
@@ -109,20 +112,21 @@ async function zincirVknListesiniKaydet(){
 
 // Bir VKN'yi zincir listesine ekler — bundan sonra bu VKN'ye ait TÜM faturalar
 // (Müşteri Master'da olsa bile) otomatik olarak "Kontrol" grubuna düşer.
-async function zincirVknEkle(vkn){
+// PERFORMANS: bellek anında güncellenir, kalıcı kayıt arka planda (await'siz) yürür.
+function zincirVknEkle(vkn){
   const normalizeVkn = normVKN(vkn);
   if(!normalizeVkn) return;
   state.zincirVknListesi.add(normalizeVkn);
-  await zincirVknListesiniKaydet();
+  zincirVknListesiniKaydet().catch(e=> console.warn('Zincir VKN listesi kaydedilemedi (bellekte geçerli):', e));
 }
 
 // Bir VKN'yi zincir listesinden çıkarır — normal Müşteri Master/manuel VKN ataması
 // mantığı bu VKN için tekrar geçerli olur.
-async function zincirVknCikar(vkn){
+function zincirVknCikar(vkn){
   const normalizeVkn = normVKN(vkn);
   if(!normalizeVkn) return;
   state.zincirVknListesi.delete(normalizeVkn);
-  await zincirVknListesiniKaydet();
+  zincirVknListesiniKaydet().catch(e=> console.warn('Zincir VKN listesi kaydedilemedi (bellekte geçerli):', e));
 }
 
 function vknZincirMi(vkn){
@@ -148,14 +152,15 @@ async function faturaSubeAtamalariniKaydet(){
 
 // Bir faturayı (faturaKey ile) geçici olarak bir şubeye atar/atamayı kaldırır.
 // vknSubesiniAta'dan farkı: bu SADECE bu faturaKey içindir, VKN bazında değildir.
-async function faturaSubesiniAta(faturaKey, grup){
+// PERFORMANS: bellek anında güncellenir, kalıcı kayıt arka planda (await'siz) yürür.
+function faturaSubesiniAta(faturaKey, grup){
   if(!faturaKey) return;
   if(grup === 'kesan' || grup === 'bayrampasa'){
     state.faturaSubeAtamalari.set(faturaKey, grup);
   }else{
     state.faturaSubeAtamalari.delete(faturaKey);
   }
-  await faturaSubeAtamalariniKaydet();
+  faturaSubeAtamalariniKaydet().catch(e=> console.warn('Fatura şube ataması kaydedilemedi (bellekte geçerli):', e));
 }
 
 function faturaSubesiAtanmisMi(faturaKey){
